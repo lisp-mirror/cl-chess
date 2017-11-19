@@ -145,15 +145,17 @@
           ;; fixme: find a more efficient way to store moves
           (best-moves (make-array 400 :fill-pointer 0))
           (threads (floor threads 2)))
-      (print-board board)
-      (initialize-chess-engine engine-name-1 process-1 threads)
-      ;; fixme: stockfish can't play with itself, run two stockfishes
-      ;;
-      ;; todo: ponder followed by stop or ponderhit when it's the
-      ;; other side's turn
-      (chess-engine-move engine-name-1 process-1 command-stream best-moves seconds)
-      (chess-engine-move engine-name-1 process-1 command-stream best-moves seconds)
-      ;; Quits the chess engine.
-      (quit-chess-engine process-1)
-      (chess-engine-leftover-output engine-name-1 process-1)
-      best-moves)))
+      (unwind-protect
+           (progn
+             (initialize-chess-engine engine-name-1 process-1 threads)
+             ;; fixme: stockfish can't play with itself, run two stockfishes
+             ;;
+             ;; todo: ponder followed by stop or ponderhit when it's the
+             ;; other side's turn
+             (print-board board)
+             (chess-engine-move engine-name-1 process-1 command-stream best-moves seconds)
+             (chess-engine-move engine-name-1 process-1 command-stream best-moves seconds)
+             best-moves)
+        ;; Quits the chess engine.
+        (quit-chess-engine process-1)
+        (chess-engine-leftover-output engine-name-1 process-1)))))
