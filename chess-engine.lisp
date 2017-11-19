@@ -140,7 +140,9 @@
 (defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10))
   (with-open-stream (command-stream (make-instance 'character-pipe))
     (let ((process-1 (launch-program engine-name :input :stream :output :stream))
+          (process-2 (launch-program engine-name :input :stream :output :stream))
           (engine-name-1 (concatenate 'string engine-name "-1"))
+          (engine-name-2 (concatenate 'string engine-name "-2"))
           (board (make-board))
           ;; fixme: find a more efficient way to store moves
           (best-moves (make-array 400 :fill-pointer 0))
@@ -148,14 +150,15 @@
       (unwind-protect
            (progn
              (initialize-chess-engine engine-name-1 process-1 threads)
-             ;; fixme: stockfish can't play with itself, run two stockfishes
-             ;;
+             (initialize-chess-engine engine-name-2 process-2 threads)
              ;; todo: ponder followed by stop or ponderhit when it's the
              ;; other side's turn
              (print-board board)
              (chess-engine-move engine-name-1 process-1 command-stream best-moves seconds)
-             (chess-engine-move engine-name-1 process-1 command-stream best-moves seconds)
+             (chess-engine-move engine-name-2 process-2 command-stream best-moves seconds)
              best-moves)
         ;; Quits the chess engine.
         (quit-chess-engine process-1)
-        (chess-engine-leftover-output engine-name-1 process-1)))))
+        (chess-engine-leftover-output engine-name-1 process-1)
+        (quit-chess-engine process-2)
+        (chess-engine-leftover-output engine-name-2 process-2)))))
