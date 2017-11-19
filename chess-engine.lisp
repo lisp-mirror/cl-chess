@@ -10,13 +10,13 @@
 
 (in-package #:chess-engine)
 
-(defun run-command (command process-input)
-  (format t "> ~A~%" command)
+(defun run-command (command process-input &optional (prompt "> "))-
+  (format t "~A~A~%" prompt command)
   (write-line command process-input)
   (force-output process-input))
 
-(defun run-command* (command process-input argument-vector)
-  (format t "> ~A" command)
+(defun run-command* (command process-input argument-vector &optional (prompt "> "))
+  (format t "~A~A" prompt command)
   (write-string command process-input)
   (dotimes (i (length argument-vector))
     (write-char #\Space)
@@ -26,11 +26,9 @@
   (terpri process-input)
   (force-output process-input))
 
-(defun quit-chess-engine (process)
+(defun quit-chess-engine (process &optional (prompt "> "))
   (let ((process-input (process-info-input process)))
-    (format t "> quit")
-    (write-line "quit" process-input)
-    (force-output process-input)
+    (run-command "quit" process-input prompt)
     (wait-process process)))
 
 (defun make-board ()
@@ -82,13 +80,13 @@
       (format t "/")))
   (terpri t))
 
-(defun initialize-chess-engine (engine-name chess-engine-process threads)
+(defun initialize-chess-engine (engine-name chess-engine-process threads &optional (prompt "> "))
   (let ((input (process-info-input chess-engine-process))
         (output (process-info-output chess-engine-process)))
     ;; Sends it the UCI command and handles the results, as well as
     ;; anything that was output before the UCI command was sent, if
     ;; anything.
-    (run-command "uci" input)
+    (run-command "uci" input prompt)
     ;; todo: kill process if uciok is never received
     (do ((line (read-line output nil)
                (read-line output nil)))
@@ -96,18 +94,18 @@
              (string= "uciok" line))
          (format t "~A : ~A~%" engine-name line))
       (format t "~A : ~A~%" engine-name line))
-    (run-command (format nil "setoption name Threads value ~D" threads) input)
-    (run-command "isready" input)
+    (run-command (format nil "setoption name Threads value ~D" threads) input prompt)
+    (run-command "isready" input prompt)
     (format t "~A : ~A~%" engine-name (read-line output nil))
-    (run-command "ucinewgame" input)
-    (run-command "isready" input)
+    (run-command "ucinewgame" input prompt)
+    (run-command "isready" input prompt)
     (format t "~A : ~A~%" engine-name (read-line output nil))))
 
-(defun chess-engine-move (engine-name chess-engine-process command-stream best-moves seconds)
+(defun chess-engine-move (engine-name chess-engine-process command-stream best-moves seconds &optional (prompt "> "))
   (let ((chess-engine-input (process-info-input chess-engine-process))
         (chess-engine-output (process-info-output chess-engine-process)))
-    (run-command* "position startpos moves" chess-engine-input best-moves)
-    (run-command (format nil "go movetime ~D000" seconds) chess-engine-input)
+    (run-command* "position startpos moves" chess-engine-input best-moves prompt)
+    (run-command (format nil "go movetime ~D000" seconds) chess-engine-input prompt)
     (do ((line (read-line chess-engine-output nil :eof)
                (read-line chess-engine-output nil :eof)))
         ((or (eql :eof line)
@@ -130,6 +128,19 @@
       (unless (and (>= (length line) 4) (string= "info" (subseq line 0 4)))
         (format t "~A : ~A~%" engine-name line)))))
 
+;; todo: it's stop or ponderhit, depending on if it's a match
+(defun chess-engine-end-ponder (engine-name chess-engine-process &optional prompt)
+  (let ((chess-engine-input (process-info-input chess-engine-process))
+        (chess-engine-output (process-info-output chess-engine-process)))
+    (run-command "stop" chess-engine-input prompt)
+    (do ((line (read-line chess-engine-output nil :eof)
+               (read-line chess-engine-output nil :eof)))
+        ((or (eql :eof line)
+             (and (>= (length line) 8) (string= "bestmove" (subseq line 0 8))))
+         (format t "~A : ~A~%" engine-name line))
+      (unless (and (>= (length line) 4) (string= "info" (subseq line 0 4)))
+        (format t "~A : ~A~%" engine-name line)))))
+
 (defun chess-engine-leftover-output (engine-name chess-engine-process)
   (let ((output (process-info-output chess-engine-process)))
     (do ((line (read-line output nil :eof)
@@ -149,16 +160,21 @@
           (threads (floor threads 2)))
       (unwind-protect
            (progn
-             (initialize-chess-engine engine-name-1 process-1 threads)
-             (initialize-chess-engine engine-name-2 process-2 threads)
-             ;; todo: ponder followed by stop or ponderhit when it's the
-             ;; other side's turn
+             (initialize-chess-engine engine-name-1 process-1 threads "1 > ")
+             (initialize-chess-engine engine-name-2 process-2 threads "2 > ")
              (print-board board)
-             (chess-engine-move engine-name-1 process-1 command-stream best-moves seconds)
-             (chess-engine-move engine-name-2 process-2 command-stream best-moves seconds)
+             (run-command "position startpos moves" (process-info-input process-1) "1 > ")
+             (run-command "position startpos moves" (process-info-input process-2) "2 > ")
+             (run-command "go ponder" (process-info-input process-1) "1 > ")
+             (run-command "go ponder" (process-info-input process-2) "2 > ")
+             (sleep 5)
+             (chess-engine-end-ponder engine-name-1 process-1 "1 > ")
+             (chess-engine-end-ponder engine-name-2 process-2 "2 > ")
+             (chess-engine-move engine-name-1 process-1 command-stream best-moves seconds "1 > ")
+             (chess-engine-move engine-name-2 process-2 command-stream best-moves seconds "2 > ")
              best-moves)
         ;; Quits the chess engine.
-        (quit-chess-engine process-1)
+        (quit-chess-engine process-1 "1 > ")
         (chess-engine-leftover-output engine-name-1 process-1)
-        (quit-chess-engine process-2)
+        (quit-chess-engine process-2 "2 > ")
         (chess-engine-leftover-output engine-name-2 process-2)))))
