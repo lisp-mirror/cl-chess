@@ -20,6 +20,7 @@
   (write-string command process-input)
   (dotimes (i (length argument-vector))
     (write-char #\Space)
+    (write-char #\Space process-input)
     (write-string (aref argument-vector i))
     (write-string (aref argument-vector i) process-input))
   (terpri t)
