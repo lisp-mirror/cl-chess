@@ -51,12 +51,14 @@
 (defun print-board (board)
   (declare (board board))
   (dotimes (i 8)
-    (format t " ")
+    (write-char #\Space t)
     (dotimes (j 8)
-      (format t "~C " (let ((piece (aref board i j)))
-                        (if (not (char= #\Nul piece))
-                            piece
-                            #\Space))))
+      (write-char (let ((piece (aref board i j)))
+                    (if (not (char= #\Nul piece))
+                        piece
+                        #\Space))
+                  t)
+      (write-char #\Space t))
     (terpri t)))
 
 ;;; note: this is just the board part of the FEN representation
