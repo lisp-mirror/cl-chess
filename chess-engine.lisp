@@ -174,6 +174,53 @@
         ((eq line :eof))
       (format t "~A : ~A~%" engine-name line))))
 
+(defun chess-engine-half-turn (board
+                               process-active name-active prompt-active
+                               process-pondering name-pondering prompt-pondering
+                               best-moves ponder-moves
+                               command-stream
+                               seconds)
+  (let ((ponder-move (vector-pop ponder-moves)))
+    (terpri)
+    (print-board board)
+    (terpri)
+    (chess-engine-update-position process-active best-moves nil prompt-active)
+    (chess-engine-update-position process-pondering best-moves ponder-move prompt-pondering)
+    (chess-command-ponder-start process-pondering prompt-pondering)
+    (chess-engine-move name-active process-active command-stream best-moves ponder-moves seconds prompt-active)
+    (let* ((move (vector-pop best-moves))
+           (success (string= move ponder-move)))
+      (vector-push move best-moves)
+      (chess-engine-ponder-end name-pondering process-pondering success prompt-pondering))))
+
+(defun update-board (board best-moves)
+  (let ((move (vector-pop best-moves)))
+    (if (= (length move) 4)
+        (format t
+                "(~D, ~D)"
+                (ecase (char move 0)
+                  (#\a 0)
+                  (#\b 1)
+                  (#\c 2)
+                  (#\d 3)
+                  (#\e 4)
+                  (#\f 5)
+                  (#\g 6)
+                  (#\h 7))
+                (ecase (char move 1)
+                  (#\0 (- 7 0))
+                  (#\1 (- 7 1))
+                  (#\2 (- 7 2))
+                  (#\3 (- 7 3))
+                  (#\4 (- 7 4))
+                  (#\5 (- 7 5))
+                  (#\6 (- 7 6))
+                  (#\7 (-  7))))
+        (error "Not a supported move to parse."))
+    (vector-push move best-moves)
+    board))
+
+;;; todo: record moves in algebraic notation
 (defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10))
   (with-open-stream (command-stream (make-instance 'character-pipe))
     (let ((process-1 (launch-program engine-name :input :stream :output :stream))
@@ -191,27 +238,20 @@
            (progn
              (chess-engine-initialize engine-name-1 process-1 threads prompt-1)
              (chess-engine-initialize engine-name-2 process-2 threads prompt-2)
-             (let ((ponder-move (vector-pop ponder-moves)))
-               (terpri)
-               (print-board board)
-               (terpri)
-               (chess-engine-update-position process-1 best-moves nil prompt-1)
-               (chess-engine-update-position process-2 best-moves ponder-move prompt-2)
-               (chess-command-ponder-start process-2 prompt-2)
-               (chess-engine-move engine-name-1 process-1 command-stream best-moves ponder-moves seconds prompt-1)
-               (let* ((move (vector-pop best-moves))
-                      (success (string= move ponder-move)))
-                 (vector-push move best-moves)
-                 (chess-engine-ponder-end engine-name-2 process-2 success prompt-2)))
-             (let ((ponder-move (vector-pop ponder-moves)))
-               (terpri)
-               (print-board board)
-               (terpri)
-               (chess-engine-update-position process-1 best-moves nil prompt-1)
-               (chess-engine-update-position process-2 best-moves ponder-move prompt-2)
-               (chess-command-ponder-start process-1 prompt-1)
-               (chess-engine-move engine-name-2 process-2 command-stream best-moves ponder-moves seconds prompt-2)
-               (chess-engine-ponder-end engine-name-1 process-1 nil prompt-1))
+             (chess-engine-half-turn board
+                                     process-1 engine-name-1 prompt-1
+                                     process-2 engine-name-2 prompt-2
+                                     best-moves ponder-moves
+                                     command-stream
+                                     seconds)
+             (update-board board best-moves)
+             (chess-engine-half-turn board
+                                     process-2 engine-name-2 prompt-2
+                                     process-1 engine-name-1 prompt-1
+                                     best-moves ponder-moves
+                                     command-stream
+                                     seconds)
+             (print-board board)
              (values best-moves ponder-moves))
         ;; Quits the chess engine.
         (quit-chess-engine process-1 prompt-1)
