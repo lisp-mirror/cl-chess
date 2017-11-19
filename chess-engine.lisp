@@ -17,7 +17,7 @@
   (write-line command process-input)
   (force-output process-input))
 
-(defun run-command* (command process-input argument-vector &optional (prompt "> "))
+(defun run-command* (command process-input argument-vector &optional final-argument (prompt "> "))
   (write-string prompt)
   (write-string command)
   (write-string command process-input)
@@ -26,6 +26,11 @@
     (write-char #\Space process-input)
     (write-string (aref argument-vector i))
     (write-string (aref argument-vector i) process-input))
+  (when final-argument
+    (write-char #\Space)
+    (write-char #\Space process-input)
+    (write-string final-argument)
+    (write-string final-argument process-input))
   (terpri t)
   (terpri process-input)
   (force-output process-input))
@@ -105,8 +110,8 @@
     (run-command "isready" input prompt)
     (format t "~A : ~A~%" engine-name (read-line output nil))))
 
-(defun chess-engine-update-position (chess-engine-process best-moves &optional (prompt "> "))
-  (run-command* "position startpos moves" (process-info-input chess-engine-process) best-moves prompt))
+(defun chess-engine-update-position (chess-engine-process best-moves &optional ponder-move (prompt "> "))
+  (run-command* "position startpos moves" (process-info-input chess-engine-process) best-moves ponder-move prompt))
 
 (defun chess-engine-move (engine-name chess-engine-process command-stream best-moves ponder-moves seconds &optional (prompt "> "))
   (let ((chess-engine-input (process-info-input chess-engine-process))
@@ -148,11 +153,10 @@
 (defun chess-command-ponder-start (chess-engine-process &optional (prompt "> "))
   (run-command "go ponder" (process-info-input chess-engine-process) prompt))
 
-;; todo: it's stop or ponderhit, depending on if it's a match
-(defun chess-engine-ponder-end (engine-name chess-engine-process &optional (prompt "> "))
+(defun chess-engine-ponder-end (engine-name chess-engine-process success &optional (prompt "> "))
   (let ((chess-engine-input (process-info-input chess-engine-process))
         (chess-engine-output (process-info-output chess-engine-process)))
-    (run-command "stop" chess-engine-input prompt)
+    (run-command (if success "ponderhit" "stop") chess-engine-input prompt)
     ;; Note: technically, the info is generated while it's pondering
     ;; and merely read here after stop
     (do ((line (read-line chess-engine-output nil :eof)
@@ -181,33 +185,33 @@
           (board (make-board))
           ;; fixme: find a more efficient way to store moves
           (best-moves (make-array 400 :fill-pointer 0))
-          (ponder-moves (make-array 2 :fill-pointer 0))
+          (ponder-moves (make-array 2 :fill-pointer 1 :initial-element "e2e4"))
           (threads (floor threads 2)))
       (unwind-protect
            (progn
              (chess-engine-initialize engine-name-1 process-1 threads prompt-1)
              (chess-engine-initialize engine-name-2 process-2 threads prompt-2)
-             (progn
+             (let ((ponder-move (vector-pop ponder-moves)))
                (terpri)
                (print-board board)
                (terpri)
-               (chess-engine-update-position process-1 best-moves prompt-1)
-               (chess-engine-update-position process-2 best-moves prompt-2)
+               (chess-engine-update-position process-1 best-moves nil prompt-1)
+               (chess-engine-update-position process-2 best-moves ponder-move prompt-2)
                (chess-command-ponder-start process-2 prompt-2)
                (chess-engine-move engine-name-1 process-1 command-stream best-moves ponder-moves seconds prompt-1)
-               (chess-engine-ponder-end engine-name-2 process-2 prompt-2))
-             (vector-pop ponder-moves)
-             (progn
+               (let* ((move (vector-pop best-moves))
+                      (success (string= move ponder-move)))
+                 (vector-push move best-moves)
+                 (chess-engine-ponder-end engine-name-2 process-2 success prompt-2)))
+             (let ((ponder-move (vector-pop ponder-moves)))
                (terpri)
                (print-board board)
                (terpri)
-               (chess-engine-update-position process-1 best-moves prompt-1)
-               (chess-engine-update-position process-2 best-moves prompt-2)
+               (chess-engine-update-position process-1 best-moves nil prompt-1)
+               (chess-engine-update-position process-2 best-moves ponder-move prompt-2)
                (chess-command-ponder-start process-1 prompt-1)
                (chess-engine-move engine-name-2 process-2 command-stream best-moves ponder-moves seconds prompt-2)
-               (chess-engine-ponder-end engine-name-1 process-1 prompt-1))
-             
-             (vector-pop ponder-moves)
+               (chess-engine-ponder-end engine-name-1 process-1 nil prompt-1))
              (values best-moves ponder-moves))
         ;; Quits the chess engine.
         (quit-chess-engine process-1 prompt-1)
