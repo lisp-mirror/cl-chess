@@ -10,13 +10,16 @@
 
 (in-package #:chess-engine)
 
-(defun run-command (command process-input &optional (prompt "> "))-
-  (format t "~A~A~%" prompt command)
+(defun run-command (command process-input &optional (prompt "> "))
+  (write-string prompt)
+  (write-string command)
+  (terpri)
   (write-line command process-input)
   (force-output process-input))
 
 (defun run-command* (command process-input argument-vector &optional (prompt "> "))
-  (format t "~A~A" prompt command)
+  (write-string prompt)
+  (write-string command)
   (write-string command process-input)
   (dotimes (i (length argument-vector))
     (write-char #\Space)
