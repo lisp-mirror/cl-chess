@@ -108,7 +108,7 @@
 (defun chess-engine-update-position (chess-engine-process best-moves &optional (prompt "> "))
   (run-command* "position startpos moves" (process-info-input chess-engine-process) best-moves prompt))
 
-(defun chess-engine-move (engine-name chess-engine-process command-stream best-moves seconds &optional (prompt "> "))
+(defun chess-engine-move (engine-name chess-engine-process command-stream best-moves ponder-moves seconds &optional (prompt "> "))
   (let ((chess-engine-input (process-info-input chess-engine-process))
         (chess-engine-output (process-info-output chess-engine-process)))
     (run-command (format nil "go movetime ~D000" seconds) chess-engine-input prompt)
@@ -129,8 +129,19 @@
                             ((char= char #\Space))
                           (write-char char out-string)))
                       best-moves)
-         ;; reads the ponder and does nothing with it
-         (read-line command-stream))
+         ;; Reads ponder, but does nothing with it
+         ;;
+         ;; fixme: This is an optional field
+         (do ((char (read-char command-stream) (read-char command-stream)))
+             ((char= char #\Space))
+           ;; Don't optimize this loop away.
+          char)
+         ;; Reads the actual ponder
+         (vector-push (with-output-to-string (out-string)
+                        (do ((char (read-char command-stream) (read-char command-stream)))
+                            ((char= char #\Newline))
+                          (write-char char out-string)))
+                      ponder-moves))
       (unless (and (>= (length line) 4) (string= "info" (subseq line 0 4)))
         (format t "~A : ~A~%" engine-name line)))))
 
@@ -170,6 +181,7 @@
           (board (make-board))
           ;; fixme: find a more efficient way to store moves
           (best-moves (make-array 400 :fill-pointer 0))
+          (ponder-moves (make-array 2 :fill-pointer 0))
           (threads (floor threads 2)))
       (unwind-protect
            (progn
@@ -182,8 +194,9 @@
                (chess-engine-update-position process-1 best-moves prompt-1)
                (chess-engine-update-position process-2 best-moves prompt-2)
                (chess-command-ponder-start process-2 prompt-2)
-               (chess-engine-move engine-name-1 process-1 command-stream best-moves seconds prompt-1)
+               (chess-engine-move engine-name-1 process-1 command-stream best-moves ponder-moves seconds prompt-1)
                (chess-engine-ponder-end engine-name-2 process-2 prompt-2))
+             (vector-pop ponder-moves)
              (progn
                (terpri)
                (print-board board)
@@ -191,9 +204,11 @@
                (chess-engine-update-position process-1 best-moves prompt-1)
                (chess-engine-update-position process-2 best-moves prompt-2)
                (chess-command-ponder-start process-1 prompt-1)
-               (chess-engine-move engine-name-2 process-2 command-stream best-moves seconds prompt-2)
+               (chess-engine-move engine-name-2 process-2 command-stream best-moves ponder-moves seconds prompt-2)
                (chess-engine-ponder-end engine-name-1 process-1 prompt-1))
-             best-moves)
+             
+             (vector-pop ponder-moves)
+             (values best-moves ponder-moves))
         ;; Quits the chess engine.
         (quit-chess-engine process-1 prompt-1)
         (chess-engine-leftover-output engine-name-1 process-1)
