@@ -174,16 +174,12 @@
         ((eq line :eof))
       (format t "~A : ~A~%" engine-name line))))
 
-(defun chess-engine-half-turn (board
-                               process-active name-active prompt-active
+(defun chess-engine-half-turn (process-active name-active prompt-active
                                process-pondering name-pondering prompt-pondering
                                best-moves ponder-moves
                                command-stream
                                seconds)
   (let ((ponder-move (vector-pop ponder-moves)))
-    (terpri)
-    (print-board board)
-    (terpri)
     (chess-engine-update-position process-active best-moves nil prompt-active)
     (chess-engine-update-position process-pondering best-moves ponder-move prompt-pondering)
     (chess-command-ponder-start process-pondering prompt-pondering)
@@ -238,20 +234,26 @@
            (progn
              (chess-engine-initialize engine-name-1 process-1 threads prompt-1)
              (chess-engine-initialize engine-name-2 process-2 threads prompt-2)
-             (chess-engine-half-turn board
-                                     process-1 engine-name-1 prompt-1
+             (terpri)
+             (print-board board)
+             (terpri)
+             (chess-engine-half-turn process-1 engine-name-1 prompt-1
                                      process-2 engine-name-2 prompt-2
                                      best-moves ponder-moves
                                      command-stream
                                      seconds)
              (update-board board best-moves)
-             (chess-engine-half-turn board
-                                     process-2 engine-name-2 prompt-2
+             (terpri)
+             (print-board board)
+             (terpri)
+             (chess-engine-half-turn process-2 engine-name-2 prompt-2
                                      process-1 engine-name-1 prompt-1
                                      best-moves ponder-moves
                                      command-stream
                                      seconds)
+             (terpri)
              (print-board board)
+             (terpri)
              (values best-moves ponder-moves))
         ;; Quits the chess engine.
         (quit-chess-engine process-1 prompt-1)
