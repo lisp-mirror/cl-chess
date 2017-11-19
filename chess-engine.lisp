@@ -80,7 +80,7 @@
       (format t "/")))
   (terpri t))
 
-(defun initialize-chess-engine (engine-name chess-engine-process threads &optional (prompt "> "))
+(defun chess-engine-initialize (engine-name chess-engine-process threads &optional (prompt "> "))
   (let ((input (process-info-input chess-engine-process))
         (output (process-info-output chess-engine-process)))
     ;; Sends it the UCI command and handles the results, as well as
@@ -101,10 +101,12 @@
     (run-command "isready" input prompt)
     (format t "~A : ~A~%" engine-name (read-line output nil))))
 
+(defun chess-engine-update-position (chess-engine-process best-moves &optional (prompt "> "))
+  (run-command* "position startpos moves" (process-info-input chess-engine-process) best-moves prompt))
+
 (defun chess-engine-move (engine-name chess-engine-process command-stream best-moves seconds &optional (prompt "> "))
   (let ((chess-engine-input (process-info-input chess-engine-process))
         (chess-engine-output (process-info-output chess-engine-process)))
-    (run-command* "position startpos moves" chess-engine-input best-moves prompt)
     (run-command (format nil "go movetime ~D000" seconds) chess-engine-input prompt)
     (do ((line (read-line chess-engine-output nil :eof)
                (read-line chess-engine-output nil :eof)))
@@ -128,8 +130,11 @@
       (unless (and (>= (length line) 4) (string= "info" (subseq line 0 4)))
         (format t "~A : ~A~%" engine-name line)))))
 
+(defun chess-command-ponder-start (chess-engine-process &optional (prompt "> "))
+  (run-command "go ponder" (process-info-input chess-engine-process) prompt))
+
 ;; todo: it's stop or ponderhit, depending on if it's a match
-(defun chess-engine-end-ponder (engine-name chess-engine-process &optional prompt)
+(defun chess-engine-ponder-end (engine-name chess-engine-process &optional (prompt "> "))
   (let ((chess-engine-input (process-info-input chess-engine-process))
         (chess-engine-output (process-info-output chess-engine-process)))
     (run-command "stop" chess-engine-input prompt)
@@ -164,18 +169,19 @@
           (threads (floor threads 2)))
       (unwind-protect
            (progn
-             (initialize-chess-engine engine-name-1 process-1 threads prompt-1)
-             (initialize-chess-engine engine-name-2 process-2 threads prompt-2)
+             (chess-engine-initialize engine-name-1 process-1 threads prompt-1)
+             (chess-engine-initialize engine-name-2 process-2 threads prompt-2)
              (print-board board)
-             (run-command "position startpos moves" (process-info-input process-1) prompt-1)
-             (run-command "position startpos moves" (process-info-input process-2) prompt-2)
-             (run-command "go ponder" (process-info-input process-1) prompt-1)
-             (run-command "go ponder" (process-info-input process-2) prompt-2)
-             (sleep 5)
-             (chess-engine-end-ponder engine-name-1 process-1 prompt-1)
-             (chess-engine-end-ponder engine-name-2 process-2 prompt-2)
+             (chess-engine-update-position process-1 best-moves prompt-1)
+             (chess-engine-update-position process-2 best-moves prompt-2)
+             (chess-command-ponder-start process-2 prompt-2)
              (chess-engine-move engine-name-1 process-1 command-stream best-moves seconds prompt-1)
+             (chess-engine-ponder-end engine-name-2 process-2 prompt-2)
+             (chess-engine-update-position process-1 best-moves prompt-1)
+             (chess-engine-update-position process-2 best-moves prompt-2)
+             (chess-command-ponder-start process-1 prompt-1)
              (chess-engine-move engine-name-2 process-2 command-stream best-moves seconds prompt-2)
+             (chess-engine-ponder-end engine-name-1 process-1 prompt-1)
              best-moves)
         ;; Quits the chess engine.
         (quit-chess-engine process-1 prompt-1)
