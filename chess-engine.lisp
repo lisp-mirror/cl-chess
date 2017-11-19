@@ -82,73 +82,78 @@
       (format t "/")))
   (terpri t))
 
-(defun initialize-chess-engine (engine-name chess-engine-input chess-engine-output threads)
-  ;; Sends it the UCI command and handles the results, as well as
-  ;; anything that was output before the UCI command was sent, if
-  ;; anything.
-  (run-command "uci" chess-engine-input)
-  ;; todo: kill process if uciok is never received
-  (do ((line (read-line chess-engine-output nil :eof)
-             (read-line chess-engine-output nil :eof)))
-      ((or (eql :eof line)
-           (string= "uciok" line))
-       (format t "~A : ~A~%" engine-name line))
-    (format t "~A : ~A~%" engine-name line))
-  (run-command (format nil "setoption name Threads value ~D" threads) chess-engine-input)
-  (run-command "isready" chess-engine-input)
-  (format t "~A : ~A~%" engine-name (read-line chess-engine-output nil :eof))
-  (run-command "ucinewgame" chess-engine-input)
-  (run-command "isready" chess-engine-input)
-  (format t "~A : ~A~%" engine-name (read-line chess-engine-output nil :eof)))
+(defun initialize-chess-engine (engine-name chess-engine-process threads)
+  (let ((input (process-info-input chess-engine-process))
+        (output (process-info-output chess-engine-process)))
+    ;; Sends it the UCI command and handles the results, as well as
+    ;; anything that was output before the UCI command was sent, if
+    ;; anything.
+    (run-command "uci" input)
+    ;; todo: kill process if uciok is never received
+    (do ((line (read-line output nil)
+               (read-line output nil)))
+        ((or (eql :eof line)
+             (string= "uciok" line))
+         (format t "~A : ~A~%" engine-name line))
+      (format t "~A : ~A~%" engine-name line))
+    (run-command (format nil "setoption name Threads value ~D" threads) input)
+    (run-command "isready" input)
+    (format t "~A : ~A~%" engine-name (read-line output nil))
+    (run-command "ucinewgame" input)
+    (run-command "isready" input)
+    (format t "~A : ~A~%" engine-name (read-line output nil))))
 
-(defun chess-engine-move (engine-name chess-engine-input chess-engine-output command-stream best-moves seconds)
-  (run-command* "position startpos moves" chess-engine-input best-moves)
-  (run-command (format nil "go movetime ~D000" seconds) chess-engine-input)
-  (do ((line (read-line chess-engine-output nil :eof)
-             (read-line chess-engine-output nil :eof)))
-      ((or (eql :eof line)
-           (and (>= (length line) 8) (string= "bestmove" (subseq line 0 8))))
-       (format t "~A : ~A~%" engine-name line)
-       (write-line line command-stream)
-       ;; Reads bestmove, but does nothing with it
-       (do ((char (read-char command-stream) (read-char command-stream)))
-           ((char= char #\Space))
-         ;; Don't optimize this loop away.
-         char)
-       ;; Reads the actual best move
-       (vector-push (with-output-to-string (out-string)
-                      (do ((char (read-char command-stream) (read-char command-stream)))
-                          ((char= char #\Space))
-                        (write-char char out-string)))
-                    best-moves)
-       ;; reads the ponder and does nothing with it
-       (read-line command-stream))
-    (unless (and (>= (length line) 4) (string= "info" (subseq line 0 4)))
+(defun chess-engine-move (engine-name chess-engine-process command-stream best-moves seconds)
+  (let ((chess-engine-input (process-info-input chess-engine-process))
+        (chess-engine-output (process-info-output chess-engine-process)))
+    (run-command* "position startpos moves" chess-engine-input best-moves)
+    (run-command (format nil "go movetime ~D000" seconds) chess-engine-input)
+    (do ((line (read-line chess-engine-output nil :eof)
+               (read-line chess-engine-output nil :eof)))
+        ((or (eql :eof line)
+             (and (>= (length line) 8) (string= "bestmove" (subseq line 0 8))))
+         (format t "~A : ~A~%" engine-name line)
+         (write-line line command-stream)
+         ;; Reads bestmove, but does nothing with it
+         (do ((char (read-char command-stream) (read-char command-stream)))
+             ((char= char #\Space))
+           ;; Don't optimize this loop away.
+          char)
+         ;; Reads the actual best move
+         (vector-push (with-output-to-string (out-string)
+                        (do ((char (read-char command-stream) (read-char command-stream)))
+                            ((char= char #\Space))
+                          (write-char char out-string)))
+                      best-moves)
+         ;; reads the ponder and does nothing with it
+         (read-line command-stream))
+      (unless (and (>= (length line) 4) (string= "info" (subseq line 0 4)))
+        (format t "~A : ~A~%" engine-name line)))))
+
+(defun chess-engine-leftover-output (engine-name chess-engine-process)
+  (let ((output (process-info-output chess-engine-process)))
+    (do ((line (read-line output nil :eof)
+               (read-line output nil :eof)))
+        ((eq line :eof))
       (format t "~A : ~A~%" engine-name line))))
 
-(defun chess-engine (&optional (engine-name "stockfish"))
+(defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10))
   (with-open-stream (command-stream (make-instance 'character-pipe))
-    (let* ((process (launch-program engine-name :input :stream :output :stream))
-           (process-input (process-info-input process))
-           (process-output (process-info-output process))
-           (board (make-board))
-           ;; fixme: find a more efficient way to store moves
-           (best-moves (make-array 400 :fill-pointer 0))
-           (seconds 10)
-           (threads 8)
-           (threads* (floor threads 2)))
+    (let ((process-1 (launch-program engine-name :input :stream :output :stream))
+          (engine-name-1 (concatenate 'string engine-name "-1"))
+          (board (make-board))
+          ;; fixme: find a more efficient way to store moves
+          (best-moves (make-array 400 :fill-pointer 0))
+          (threads (floor threads 2)))
       (print-board board)
-      (initialize-chess-engine engine-name process-input process-output threads*)
+      (initialize-chess-engine engine-name-1 process-1 threads)
       ;; fixme: stockfish can't play with itself, run two stockfishes
       ;;
       ;; todo: ponder followed by stop or ponderhit when it's the
       ;; other side's turn
-      (chess-engine-move engine-name process-input process-output command-stream best-moves seconds)
-      (chess-engine-move engine-name process-input process-output command-stream best-moves seconds)
+      (chess-engine-move engine-name-1 process-1 command-stream best-moves seconds)
+      (chess-engine-move engine-name-1 process-1 command-stream best-moves seconds)
       ;; Quits the chess engine.
-      (quit-chess-engine process)
-      (do ((line (read-line process-output nil :eof)
-                 (read-line process-output nil :eof)))
-          ((eq line :eof))
-        (format t "~A~%" line))
+      (quit-chess-engine process-1)
+      (chess-engine-leftover-output engine-name-1 process-1)
       best-moves)))
