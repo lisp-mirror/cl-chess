@@ -25,16 +25,32 @@
 (deftype board ()
   '(simple-array character (8 8)))
 
-(defun print-board (board &optional (stream t))
+(defun print-board (board &optional unicode (stream t))
   (declare (board board))
   (dotimes (i 8)
     (write-char #\Space stream)
     (dotimes (j 8)
-      (write-char (let ((piece (aref board i j)))
-                    (if (not (char= #\Nul piece))
-                        piece
-                        #\Space))
-                  stream)
+      (let ((piece (let ((piece (aref board i j)))
+                     (if (not (char= #\Nul piece))
+                         piece
+                         #\Space))))
+        (write-char (if unicode
+                        (ecase piece
+                          (#\P (code-char #x2659))
+                          (#\p (code-char #x265F))
+                          (#\N (code-char #x2658))
+                          (#\n (code-char #x265E))
+                          (#\B (code-char #x2657))
+                          (#\b (code-char #x265D))
+                          (#\R (code-char #x2656))
+                          (#\r (code-char #x265C))
+                          (#\Q (code-char #x2655))
+                          (#\q (code-char #x265B))
+                          (#\K (code-char #x2654))
+                          (#\k (code-char #x265A))
+                          (#\Space #\Space))
+                        piece)
+                    stream))
       (write-char #\Space stream))
     (terpri stream)))
 
@@ -283,7 +299,7 @@
 ;;;
 ;;; todo: Handle the end of the game instead of just going a certain
 ;;; number of turns
-(defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10) (turns 3) debug-stream)
+(defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10) (turns 3) unicode debug-stream)
   (let ((process-1 (launch-program engine-name :input :stream :output :stream))
         (process-2 (launch-program engine-name :input :stream :output :stream))
         (engine-name-1 (concatenate 'string engine-name "-1"))
@@ -300,7 +316,7 @@
            (chess-engine-initialize engine-name-1 process-1 threads prompt-1 debug-stream)
            (chess-engine-initialize engine-name-2 process-2 threads prompt-2 debug-stream)
            (terpri)
-           (print-board board)
+           (print-board board unicode)
            (terpri)
            (dotimes (i turns)
              (setf ponder-move (chess-engine-half-turn process-1 engine-name-1 prompt-1
@@ -310,7 +326,7 @@
                                                        debug-stream))
              (update-board board best-moves)
              (terpri)
-             (print-board board)
+             (print-board board unicode)
              (terpri)
              (setf ponder-move (chess-engine-half-turn process-2 engine-name-2 prompt-2
                                                        process-1 engine-name-1 prompt-1
@@ -319,7 +335,7 @@
                                                        debug-stream))
              (update-board board best-moves)
              (terpri)
-             (print-board board)
+             (print-board board unicode)
              (terpri))
            best-moves)
       ;; Quits the chess engine.
