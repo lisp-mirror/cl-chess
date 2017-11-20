@@ -124,21 +124,21 @@
            ;; Reads the actual best move
            (vector-push (with-output-to-string (out-string)
                           (do ((char (read-char command) (read-char command)))
-                              ((char= char #\Space))
+                              ((or (eql char :eof) (char= char #\Space)))
                             (write-char char out-string)))
                         best-moves)
-           ;; Reads ponder, if it exists
-           (let ((ponder? t))
-             ;; Assumes the next word is "ponder" if it is there
-             (do ((char (read-char command nil :eof) (read-char command nil :eof)))
-                 ((or (eq char :eof) (char= char #\Space))
-                  (when (eq char :oef) (setf ponder? nil))))
-             ;; Assumes the rest of the line is the ponder command, if
-             ;; it's there
-             (when ponder?
-               (vector-push (with-output-to-string (out-string)
-                              (read-line command))
-                            ponder-moves)))))
+           ;; Reads ponder, if it exists. This assumes the next word
+           ;; either is ponder or does not exist.
+           (let ((ponder? (do ((char (read-char command nil :eof) (read-char command nil :eof)))
+                              ((or (eql char :eof) (char= char #\Space))
+                               (not (eql char :eof))))))
+             (format t "~A~%" ponder?)
+             (if ponder?
+                 ;; Assumes the rest of the line is the ponder command
+                 (vector-push (with-output-to-string (out-string)
+                                (read-line command))
+                              ponder-moves)
+                 (vector-push nil ponder-moves)))))
       (unless (and (>= (length line) 4) (string= "info" (subseq line 0 4)))
         (format t "~A : ~A~%" engine-name line)))))
 
@@ -163,7 +163,7 @@
   (let ((output (process-info-output chess-engine-process)))
     (do ((line (read-line output nil :eof)
                (read-line output nil :eof)))
-        ((eq line :eof))
+        ((eql line :eof))
       (format t "~A : ~A~%" engine-name line))))
 
 (defun chess-engine-half-turn (process-active name-active prompt-active
@@ -172,13 +172,15 @@
                                seconds)
   (let ((ponder-move (vector-pop ponder-moves)))
     (chess-engine-update-position process-active best-moves nil prompt-active)
-    (chess-engine-update-position process-pondering best-moves ponder-move prompt-pondering)
-    (chess-command-ponder-start process-pondering prompt-pondering)
+    (when ponder-move
+      (chess-engine-update-position process-pondering best-moves ponder-move prompt-pondering)
+      (chess-command-ponder-start process-pondering prompt-pondering))
     (chess-engine-move name-active process-active best-moves ponder-moves seconds prompt-active)
     (let* ((move (vector-pop best-moves))
            (success (string= move ponder-move)))
       (vector-push move best-moves)
-      (chess-engine-ponder-end name-pondering process-pondering success prompt-pondering))))
+      (when ponder-move
+        (chess-engine-ponder-end name-pondering process-pondering success prompt-pondering)))))
 
 (declaim (inline %chess-board-ref))
 (defun %chess-board-ref (board char-0 char-1)
@@ -237,7 +239,7 @@
     board))
 
 ;;; todo: record moves in algebraic notation
-(defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10))
+(defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10) (turns 3))
   (let ((process-1 (launch-program engine-name :input :stream :output :stream))
         (process-2 (launch-program engine-name :input :stream :output :stream))
         (engine-name-1 (concatenate 'string engine-name "-1"))
@@ -256,7 +258,7 @@
            (terpri)
            (print-board board)
            (terpri)
-           (dotimes (i 3)
+           (dotimes (i turns)
              (chess-engine-half-turn process-1 engine-name-1 prompt-1
                                      process-2 engine-name-2 prompt-2
                                      best-moves ponder-moves
@@ -273,7 +275,7 @@
              (terpri)
              (print-board board)
              (terpri))
-           (values best-moves ponder-moves))
+           best-moves)
       ;; Quits the chess engine.
       (quit-chess-engine process-1 prompt-1)
       (chess-engine-leftover-output engine-name-1 process-1)
