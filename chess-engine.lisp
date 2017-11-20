@@ -111,7 +111,7 @@
 (defun chess-engine-update-position (chess-engine-process best-moves &optional ponder-move (prompt "> "))
   (run-command* "position startpos moves" (process-info-input chess-engine-process) best-moves ponder-move prompt))
 
-(defun chess-engine-move (engine-name chess-engine-process best-moves ponder-moves seconds &optional (prompt "> "))
+(defun chess-engine-move (engine-name chess-engine-process best-moves seconds &optional (prompt "> "))
   (let ((chess-engine-input (process-info-input chess-engine-process))
         (chess-engine-output (process-info-output chess-engine-process)))
     (run-command (format nil "go movetime ~D000" seconds) chess-engine-input prompt)
@@ -135,10 +135,8 @@
                    ;; Assumes the rest of the line is the ponder command
                    (do ((char (read-char command) (read-char command)))
                        ((char= char #\Space)))
-                   (vector-push (with-output-to-string (out-string)
-                                  (read-line command))
-                                ponder-moves))
-                 (vector-push nil ponder-moves)))))
+                   (with-output-to-string (out-string) (read-line command)))
+                 nil))))
       (unless (and (>= (length line) 4) (string= "info" (subseq line 0 4)))
         (format t "~A : ~A~%" engine-name line)))))
 
@@ -168,19 +166,19 @@
 
 (defun chess-engine-half-turn (process-active name-active prompt-active
                                process-pondering name-pondering prompt-pondering
-                               best-moves ponder-moves
+                               best-moves ponder-move
                                seconds)
-  (let ((ponder-move (vector-pop ponder-moves)))
+  (let ((new-ponder-move nil))
     (chess-engine-update-position process-active best-moves nil prompt-active)
     (when ponder-move
       (chess-engine-update-position process-pondering best-moves ponder-move prompt-pondering)
       (chess-command-ponder-start process-pondering prompt-pondering))
-    (chess-engine-move name-active process-active best-moves ponder-moves seconds prompt-active)
-    (let* ((move (vector-pop best-moves))
-           (success (string= move ponder-move)))
+    (setf new-ponder-move (chess-engine-move name-active process-active best-moves seconds prompt-active))
+    (let ((move (vector-pop best-moves)))
       (vector-push move best-moves)
       (when ponder-move
-        (chess-engine-ponder-end name-pondering process-pondering success prompt-pondering)))))
+        (chess-engine-ponder-end name-pondering process-pondering (string= move ponder-move) prompt-pondering)))
+    new-ponder-move))
 
 (declaim (inline %chess-board-ref))
 (defun %chess-board-ref (board char-0 char-1)
@@ -251,7 +249,7 @@
         (board (make-board))
         ;; fixme: find a more efficient way to store moves
         (best-moves (make-array 400 :fill-pointer 0))
-        (ponder-moves (make-array 2 :fill-pointer 1 :initial-element "e2e4"))
+        (ponder-move "e2e4")
         (threads (floor threads 2)))
     (unwind-protect
          (progn
@@ -261,18 +259,18 @@
            (print-board board)
            (terpri)
            (dotimes (i turns)
-             (chess-engine-half-turn process-1 engine-name-1 prompt-1
-                                     process-2 engine-name-2 prompt-2
-                                     best-moves ponder-moves
-                                     seconds)
+             (setf ponder-move (chess-engine-half-turn process-1 engine-name-1 prompt-1
+                                                       process-2 engine-name-2 prompt-2
+                                                       best-moves ponder-move
+                                                       seconds))
              (update-board board best-moves)
              (terpri)
              (print-board board)
              (terpri)
-             (chess-engine-half-turn process-2 engine-name-2 prompt-2
-                                     process-1 engine-name-1 prompt-1
-                                     best-moves ponder-moves
-                                     seconds)
+             (setf ponder-move (chess-engine-half-turn process-2 engine-name-2 prompt-2
+                                                       process-1 engine-name-1 prompt-1
+                                                       best-moves ponder-move
+                                                       seconds))
              (update-board board best-moves)
              (terpri)
              (print-board board)
