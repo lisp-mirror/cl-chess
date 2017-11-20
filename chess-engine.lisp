@@ -8,6 +8,117 @@
 
 (in-package #:chess-engine)
 
+;;; Chess board
+
+(defun make-board ()
+  (make-array '(8 8)
+              :element-type 'character
+              :initial-contents '((#\r #\n #\b #\q #\k #\b #\n #\r)
+                                  (#\p #\p #\p #\p #\p #\p #\p #\p)
+                                  (#\Nul #\Nul #\Nul #\Nul #\Nul #\Nul #\Nul #\Nul)
+                                  (#\Nul #\Nul #\Nul #\Nul #\Nul #\Nul #\Nul #\Nul)
+                                  (#\Nul #\Nul #\Nul #\Nul #\Nul #\Nul #\Nul #\Nul)
+                                  (#\Nul #\Nul #\Nul #\Nul #\Nul #\Nul #\Nul #\Nul)
+                                  (#\P #\P #\P #\P #\P #\P #\P #\P)
+                                  (#\R #\N #\B #\Q #\K #\B #\N #\R))))
+
+(deftype board ()
+  '(simple-array character (8 8)))
+
+(defun print-board (board &optional (stream t))
+  (declare (board board))
+  (dotimes (i 8)
+    (write-char #\Space stream)
+    (dotimes (j 8)
+      (write-char (let ((piece (aref board i j)))
+                    (if (not (char= #\Nul piece))
+                        piece
+                        #\Space))
+                  stream)
+      (write-char #\Space stream))
+    (terpri stream)))
+
+;;; note: This is just the board part of the FEN representation
+(defun print-fen-board (board &optional (stream t))
+  (declare (board board))
+  (dotimes (i 8)
+    (let ((counter 0))
+      (declare ((integer 0 8) counter))
+      (dotimes (j 8)
+        (let ((piece (aref board i j)))
+          (if (not (char= #\Nul piece))
+              (progn
+                (unless (zerop counter)
+                  (format stream "~D" counter)
+                  (setf counter 0))
+                (write-char piece stream))
+              (incf counter))))
+      (unless (zerop counter)
+        (format stream "~D" counter)))
+    (unless (= i 7)
+      (format stream "/")))
+  (terpri stream))
+
+(declaim (inline %chess-board-ref))
+(defun %chess-board-ref (board char-0 char-1)
+  (aref board
+        (ecase char-1
+          (#\1 (- 8 1))
+          (#\2 (- 8 2))
+          (#\3 (- 8 3))
+          (#\4 (- 8 4))
+          (#\5 (- 8 5))
+          (#\6 (- 8 6))
+          (#\7 (- 8 7))
+          (#\8 (- 8 8)))
+        (ecase char-0
+          (#\a 0)
+          (#\b 1)
+          (#\c 2)
+          (#\d 3)
+          (#\e 4)
+          (#\f 5)
+          (#\g 6)
+          (#\h 7))))
+
+(defun (setf %chess-board-ref) (new-value board char-0 char-1)
+  (setf (aref board
+              (ecase char-1
+                (#\1 (- 8 1))
+                (#\2 (- 8 2))
+                (#\3 (- 8 3))
+                (#\4 (- 8 4))
+                (#\5 (- 8 5))
+                (#\6 (- 8 6))
+                (#\7 (- 8 7))
+                (#\8 (- 8 8)))
+              (ecase char-0
+                (#\a 0)
+                (#\b 1)
+                (#\c 2)
+                (#\d 3)
+                (#\e 4)
+                (#\f 5)
+                (#\g 6)
+                (#\h 7)))
+        new-value))
+
+;;; todo: handle castling, which seems to be just commanding the king
+;;; to move in the UCI move syntax
+(defun update-board (board best-moves)
+  (declare (board board))
+  (let ((move (vector-pop best-moves)))
+    (if (= (length move) 4)
+        (setf (%chess-board-ref board (char move 2) (char move 3))
+              (%chess-board-ref board (char move 0) (char move 1))
+              (%chess-board-ref board (char move 0) (char move 1))
+              #\Null)
+        (error "Not a supported move to parse."))
+    (vector-push move best-moves)
+    board))
+
+;;; Chess engine (UCI)
+
 (defun run-command (command process-input &optional (prompt "> ") debug-stream)
   (when debug-stream
     (write-string prompt debug-stream)
@@ -42,55 +153,6 @@
   (let ((process-input (process-info-input process)))
     (run-command "quit" process-input prompt debug-stream)
     (wait-process process)))
-
-(defun make-board ()
-  (make-array '(8 8)
-              :element-type 'character
-              :initial-contents '((#\r #\n #\b #\q #\k #\b #\n #\r)
-                                  (#\p #\p #\p #\p #\p #\p #\p #\p)
-                                  (#\Nul #\Nul #\Nul #\Nul #\Nul #\Nul #\Nul #\Nul)
-                                  (#\Nul #\Nul #\Nul #\Nul #\Nul #\Nul #\Nul #\Nul)
-                                  (#\Nul #\Nul #\Nul #\Nul #\Nul #\Nul #\Nul #\Nul)
-                                  (#\Nul #\Nul #\Nul #\Nul #\Nul #\Nul #\Nul #\Nul)
-                                  (#\P #\P #\P #\P #\P #\P #\P #\P)
-                                  (#\R #\N #\B #\Q #\K #\B #\N #\R))))
-
-(deftype board ()
-  '(simple-array character (8 8)))
-
-(defun print-board (board)
-  (declare (board board))
-  (dotimes (i 8)
-    (write-char #\Space t)
-    (dotimes (j 8)
-      (write-char (let ((piece (aref board i j)))
-                    (if (not (char= #\Nul piece))
-                        piece
-                        #\Space))
-                  t)
-      (write-char #\Space t))
-    (terpri t)))
-
-;;; note: this is just the board part of the FEN representation
-(defun print-fen-board (board)
-  (declare (board board))
-  (dotimes (i 8)
-    (let ((counter 0))
-      (declare ((integer 0 8) counter))
-      (dotimes (j 8)
-        (let ((piece (aref board i j)))
-          (if (not (char= #\Nul piece))
-              (progn
-                (unless (zerop counter)
-                  (format t "~D" counter)
-                  (setf counter 0))
-                (write-char piece t))
-              (incf counter))))
-      (unless (zerop counter)
-        (format t "~D" counter)))
-    (unless (= i 7)
-      (format t "/")))
-  (terpri t))
 
 (defun chess-engine-initialize (engine-name chess-engine-process threads &optional (prompt "> ") debug-stream)
   (let ((input (process-info-input chess-engine-process))
@@ -196,64 +258,6 @@
       (when ponder-move
         (chess-engine-ponder-end name-pondering process-pondering (string= move ponder-move) prompt-pondering debug-stream)))
     new-ponder-move))
-
-(declaim (inline %chess-board-ref))
-(defun %chess-board-ref (board char-0 char-1)
-  (aref board
-        (ecase char-1
-          (#\1 (- 8 1))
-          (#\2 (- 8 2))
-          (#\3 (- 8 3))
-          (#\4 (- 8 4))
-          (#\5 (- 8 5))
-          (#\6 (- 8 6))
-          (#\7 (- 8 7))
-          (#\8 (- 8 8)))
-        (ecase char-0
-          (#\a 0)
-          (#\b 1)
-          (#\c 2)
-          (#\d 3)
-          (#\e 4)
-          (#\f 5)
-          (#\g 6)
-          (#\h 7))))
-
-(defun (setf %chess-board-ref) (new-value board char-0 char-1)
-  (setf (aref board
-              (ecase char-1
-                (#\1 (- 8 1))
-                (#\2 (- 8 2))
-                (#\3 (- 8 3))
-                (#\4 (- 8 4))
-                (#\5 (- 8 5))
-                (#\6 (- 8 6))
-                (#\7 (- 8 7))
-                (#\8 (- 8 8)))
-              (ecase char-0
-                (#\a 0)
-                (#\b 1)
-                (#\c 2)
-                (#\d 3)
-                (#\e 4)
-                (#\f 5)
-                (#\g 6)
-                (#\h 7)))
-        new-value))
-
-;;; todo: handle castling, which seems to be just commanding the king
-;;; to move in the UCI move syntax
-(defun update-board (board best-moves)
-  (declare (board board))
-  (let ((move (vector-pop best-moves)))
-    (if (= (length move) 4)
-        (setf (%chess-board-ref board (char move 2) (char move 3))
-              (%chess-board-ref board (char move 0) (char move 1))
-              (%chess-board-ref board (char move 0) (char move 1))
-              #\Null)
-        (error "Not a supported move to parse."))
-    (vector-push move best-moves)
-    board))
 
 ;;; todo: record moves in algebraic notation
 (defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10) (turns 3) debug-stream)
