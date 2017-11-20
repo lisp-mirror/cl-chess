@@ -211,18 +211,36 @@
           (#\g 6)
           (#\h 7))))
 
+(defun (setf %chess-board-ref) (new-value board char-0 char-1)
+  (setf (aref board
+              (ecase char-1
+                (#\1 (- 8 1))
+                (#\2 (- 8 2))
+                (#\3 (- 8 3))
+                (#\4 (- 8 4))
+                (#\5 (- 8 5))
+                (#\6 (- 8 6))
+                (#\7 (- 8 7))
+                (#\8 (- 8 8)))
+              (ecase char-0
+                (#\a 0)
+                (#\b 1)
+                (#\c 2)
+                (#\d 3)
+                (#\e 4)
+                (#\f 5)
+                (#\g 6)
+                (#\h 7)))
+        new-value))
+
 (defun update-board (board best-moves)
   (declare (board board))
   (let ((move (vector-pop best-moves)))
-    (format t "~A : " move)
     (if (= (length move) 4)
-        (progn
-          (format t
-                  "~C "
-                  (%chess-board-ref board (char move 0) (char move 1)))
-          (format t
-                  "~C"
-                  (%chess-board-ref board (char move 2) (char move 3))))
+        (setf (%chess-board-ref board (char move 2) (char move 3))
+              (%chess-board-ref board (char move 0) (char move 1))
+              (%chess-board-ref board (char move 0) (char move 1))
+              #\Null)
         (error "Not a supported move to parse."))
     (vector-push move best-moves)
     board))
@@ -248,23 +266,25 @@
              (terpri)
              (print-board board)
              (terpri)
-             (chess-engine-half-turn process-1 engine-name-1 prompt-1
-                                     process-2 engine-name-2 prompt-2
-                                     best-moves ponder-moves
-                                     command-stream
-                                     seconds)
-             (update-board board best-moves)
-             (terpri)
-             (print-board board)
-             (terpri)
-             (chess-engine-half-turn process-2 engine-name-2 prompt-2
-                                     process-1 engine-name-1 prompt-1
-                                     best-moves ponder-moves
-                                     command-stream
-                                     seconds)
-             (terpri)
-             (print-board board)
-             (terpri)
+             (dotimes (i 3)
+               (chess-engine-half-turn process-1 engine-name-1 prompt-1
+                                       process-2 engine-name-2 prompt-2
+                                       best-moves ponder-moves
+                                       command-stream
+                                       seconds)
+               (update-board board best-moves)
+               (terpri)
+               (print-board board)
+               (terpri)
+               (chess-engine-half-turn process-2 engine-name-2 prompt-2
+                                       process-1 engine-name-1 prompt-1
+                                       best-moves ponder-moves
+                                       command-stream
+                                       seconds)
+               (update-board board best-moves)
+               (terpri)
+               (print-board board)
+               (terpri))
              (values best-moves ponder-moves))
         ;; Quits the chess engine.
         (quit-chess-engine process-1 prompt-1)
