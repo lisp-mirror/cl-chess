@@ -8,34 +8,39 @@
 
 (in-package #:chess-engine)
 
-(defun run-command (command process-input &optional (prompt "> "))
-  (write-string prompt)
-  (write-string command)
-  (terpri)
+(defun run-command (command process-input &optional (prompt "> ") debug-stream)
+  (when debug-stream
+    (write-string prompt debug-stream)
+    (write-string command debug-stream)
+    (terpri debug-stream))
   (write-line command process-input)
   (force-output process-input))
 
-(defun run-command* (command process-input argument-vector &optional final-argument (prompt "> "))
-  (write-string prompt)
-  (write-string command)
+(defun run-command* (command process-input argument-vector &optional final-argument (prompt "> ") debug-stream)
+  (when debug-stream
+    (write-string prompt debug-stream)
+    (write-string command debug-stream))
   (write-string command process-input)
   (dotimes (i (length argument-vector))
-    (write-char #\Space)
+    (when debug-stream
+      (write-char #\Space debug-stream)
+      (write-string (aref argument-vector i) debug-stream))
     (write-char #\Space process-input)
-    (write-string (aref argument-vector i))
     (write-string (aref argument-vector i) process-input))
   (when final-argument
-    (write-char #\Space)
+    (when debug-stream
+      (write-char #\Space debug-stream)
+      (write-string final-argument debug-stream))
     (write-char #\Space process-input)
-    (write-string final-argument)
     (write-string final-argument process-input))
-  (terpri t)
+  (when debug-stream
+    (terpri debug-stream))
   (terpri process-input)
   (force-output process-input))
 
-(defun quit-chess-engine (process &optional (prompt "> "))
+(defun quit-chess-engine (process &optional (prompt "> ") debug-stream)
   (let ((process-input (process-info-input process)))
-    (run-command "quit" process-input prompt)
+    (run-command "quit" process-input prompt debug-stream)
     (wait-process process)))
 
 (defun make-board ()
@@ -87,39 +92,48 @@
       (format t "/")))
   (terpri t))
 
-(defun chess-engine-initialize (engine-name chess-engine-process threads &optional (prompt "> "))
+(defun chess-engine-initialize (engine-name chess-engine-process threads &optional (prompt "> ") debug-stream)
   (let ((input (process-info-input chess-engine-process))
         (output (process-info-output chess-engine-process)))
     ;; Sends it the UCI command and handles the results, as well as
     ;; anything that was output before the UCI command was sent, if
     ;; anything.
-    (run-command "uci" input prompt)
+    (run-command "uci" input prompt debug-stream)
     ;; todo: kill process if uciok is never received
     (do ((line (read-line output nil)
                (read-line output nil)))
         ((or (eql :eof line)
              (string= "uciok" line))
-         (format t "~A : ~A~%" engine-name line))
-      (format t "~A : ~A~%" engine-name line))
-    (run-command (format nil "setoption name Threads value ~D" threads) input prompt)
-    (run-command "isready" input prompt)
-    (format t "~A : ~A~%" engine-name (read-line output nil))
-    (run-command "ucinewgame" input prompt)
-    (run-command "isready" input prompt)
-    (format t "~A : ~A~%" engine-name (read-line output nil))))
+         (when debug-stream
+           (format debug-stream "~A : ~A~%" engine-name line)))
+      (when debug-stream
+        (format debug-stream "~A : ~A~%" engine-name line)))
+    (run-command (format nil "setoption name Threads value ~D" threads) input prompt debug-stream)
+    (run-command "isready" input prompt debug-stream)
+    ;; wait for a response to isready
+    (let ((ready? (read-line output)))
+      (when debug-stream
+        (format debug-stream "~A : ~A~%" engine-name ready?)))
+    (run-command "ucinewgame" input prompt debug-stream)
+    (run-command "isready" input prompt debug-stream)
+    ;; wait for a response to isready
+    (let ((ready? (read-line output)))
+      (when debug-stream
+        (format debug-stream "~A : ~A~%" engine-name ready?)))))
 
-(defun chess-engine-update-position (chess-engine-process best-moves &optional ponder-move (prompt "> "))
-  (run-command* "position startpos moves" (process-info-input chess-engine-process) best-moves ponder-move prompt))
+(defun chess-engine-update-position (chess-engine-process best-moves &optional ponder-move (prompt "> ") debug-stream)
+  (run-command* "position startpos moves" (process-info-input chess-engine-process) best-moves ponder-move prompt debug-stream))
 
-(defun chess-engine-move (engine-name chess-engine-process best-moves seconds &optional (prompt "> "))
+(defun chess-engine-move (engine-name chess-engine-process best-moves seconds &optional (prompt "> ") debug-stream)
   (let ((chess-engine-input (process-info-input chess-engine-process))
         (chess-engine-output (process-info-output chess-engine-process)))
-    (run-command (format nil "go movetime ~D000" seconds) chess-engine-input prompt)
+    (run-command (format nil "go movetime ~D000" seconds) chess-engine-input prompt debug-stream)
     (do ((line (read-line chess-engine-output nil :eof)
                (read-line chess-engine-output nil :eof)))
         ((or (eql :eof line)
              (and (>= (length line) 8) (string= "bestmove" (subseq line 0 8))))
-         (format t "~A : ~A~%" engine-name line)
+         (when debug-stream
+           (format debug-stream "~A : ~A~%" engine-name line))
          (with-input-from-string (command line :start 9)
            ;; Reads the actual best move
            (let ((ponder? t))
@@ -137,47 +151,50 @@
                        ((char= char #\Space)))
                    (with-output-to-string (out-string) (read-line command)))
                  nil))))
-      (unless (and (>= (length line) 4) (string= "info" (subseq line 0 4)))
-        (format t "~A : ~A~%" engine-name line)))))
+      (unless (or (not debug-stream) (and (>= (length line) 4) (string= "info" (subseq line 0 4))))
+        (format debug-stream "~A : ~A~%" engine-name line)))))
 
-(defun chess-command-ponder-start (chess-engine-process &optional (prompt "> "))
-  (run-command "go ponder" (process-info-input chess-engine-process) prompt))
+(defun chess-command-ponder-start (chess-engine-process &optional (prompt "> ") debug-stream)
+  (run-command "go ponder" (process-info-input chess-engine-process) prompt debug-stream))
 
-(defun chess-engine-ponder-end (engine-name chess-engine-process success &optional (prompt "> "))
+(defun chess-engine-ponder-end (engine-name chess-engine-process success &optional (prompt "> ") debug-stream)
   (let ((chess-engine-input (process-info-input chess-engine-process))
         (chess-engine-output (process-info-output chess-engine-process)))
-    (run-command (if success "ponderhit" "stop") chess-engine-input prompt)
+    (run-command (if success "ponderhit" "stop") chess-engine-input prompt debug-stream)
     ;; Note: technically, the info is generated while it's pondering
     ;; and merely read here after stop
     (do ((line (read-line chess-engine-output nil :eof)
                (read-line chess-engine-output nil :eof)))
         ((or (eql :eof line)
              (and (>= (length line) 8) (string= "bestmove" (subseq line 0 8))))
-         (format t "~A : ~A~%" engine-name line))
-      (unless (and (>= (length line) 4) (string= "info" (subseq line 0 4)))
-        (format t "~A : ~A~%" engine-name line)))))
+         (when debug-stream
+           (format debug-stream "~A : ~A~%" engine-name line)))
+      (unless (or (not debug-stream) (and (>= (length line) 4) (string= "info" (subseq line 0 4))))
+        (format debug-stream "~A : ~A~%" engine-name line)))))
 
-(defun chess-engine-leftover-output (engine-name chess-engine-process)
+(defun chess-engine-leftover-output (engine-name chess-engine-process debug-stream)
   (let ((output (process-info-output chess-engine-process)))
     (do ((line (read-line output nil :eof)
                (read-line output nil :eof)))
         ((eql line :eof))
-      (format t "~A : ~A~%" engine-name line))))
+      (when debug-stream
+        (format debug-stream "~A : ~A~%" engine-name line)))))
 
 (defun chess-engine-half-turn (process-active name-active prompt-active
                                process-pondering name-pondering prompt-pondering
                                best-moves ponder-move
-                               seconds)
+                               seconds
+                               debug-stream)
   (let ((new-ponder-move nil))
-    (chess-engine-update-position process-active best-moves nil prompt-active)
+    (chess-engine-update-position process-active best-moves nil prompt-active debug-stream)
     (when ponder-move
-      (chess-engine-update-position process-pondering best-moves ponder-move prompt-pondering)
-      (chess-command-ponder-start process-pondering prompt-pondering))
-    (setf new-ponder-move (chess-engine-move name-active process-active best-moves seconds prompt-active))
+      (chess-engine-update-position process-pondering best-moves ponder-move prompt-pondering debug-stream)
+      (chess-command-ponder-start process-pondering prompt-pondering debug-stream))
+    (setf new-ponder-move (chess-engine-move name-active process-active best-moves seconds prompt-active debug-stream))
     (let ((move (vector-pop best-moves)))
       (vector-push move best-moves)
       (when ponder-move
-        (chess-engine-ponder-end name-pondering process-pondering (string= move ponder-move) prompt-pondering)))
+        (chess-engine-ponder-end name-pondering process-pondering (string= move ponder-move) prompt-pondering debug-stream)))
     new-ponder-move))
 
 (declaim (inline %chess-board-ref))
@@ -239,7 +256,7 @@
     board))
 
 ;;; todo: record moves in algebraic notation
-(defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10) (turns 3))
+(defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10) (turns 3) debug-stream)
   (let ((process-1 (launch-program engine-name :input :stream :output :stream))
         (process-2 (launch-program engine-name :input :stream :output :stream))
         (engine-name-1 (concatenate 'string engine-name "-1"))
@@ -253,8 +270,8 @@
         (threads (floor threads 2)))
     (unwind-protect
          (progn
-           (chess-engine-initialize engine-name-1 process-1 threads prompt-1)
-           (chess-engine-initialize engine-name-2 process-2 threads prompt-2)
+           (chess-engine-initialize engine-name-1 process-1 threads prompt-1 debug-stream)
+           (chess-engine-initialize engine-name-2 process-2 threads prompt-2 debug-stream)
            (terpri)
            (print-board board)
            (terpri)
@@ -262,7 +279,8 @@
              (setf ponder-move (chess-engine-half-turn process-1 engine-name-1 prompt-1
                                                        process-2 engine-name-2 prompt-2
                                                        best-moves ponder-move
-                                                       seconds))
+                                                       seconds
+                                                       debug-stream))
              (update-board board best-moves)
              (terpri)
              (print-board board)
@@ -270,14 +288,15 @@
              (setf ponder-move (chess-engine-half-turn process-2 engine-name-2 prompt-2
                                                        process-1 engine-name-1 prompt-1
                                                        best-moves ponder-move
-                                                       seconds))
+                                                       seconds
+                                                       debug-stream))
              (update-board board best-moves)
              (terpri)
              (print-board board)
              (terpri))
            best-moves)
       ;; Quits the chess engine.
-      (quit-chess-engine process-1 prompt-1)
-      (chess-engine-leftover-output engine-name-1 process-1)
-      (quit-chess-engine process-2 prompt-2)
-      (chess-engine-leftover-output engine-name-2 process-2))))
+      (quit-chess-engine process-1 prompt-1 debug-stream)
+      (chess-engine-leftover-output engine-name-1 process-1 debug-stream)
+      (quit-chess-engine process-2 prompt-2 debug-stream)
+      (chess-engine-leftover-output engine-name-2 process-2 debug-stream))))
