@@ -103,16 +103,36 @@
                 (#\h 7)))
         new-value))
 
-;;; todo: handle castling, which seems to be just commanding the king
-;;; to move in the UCI move syntax
+;;; todo: Verify that the castling is legal
 (defun update-board (board best-moves)
   (declare (board board))
   (let ((move (vector-pop best-moves)))
     (if (= (length move) 4)
-        (setf (%chess-board-ref board (char move 2) (char move 3))
-              (%chess-board-ref board (char move 0) (char move 1))
-              (%chess-board-ref board (char move 0) (char move 1))
-              #\Null)
+        (progn (setf (%chess-board-ref board (char move 2) (char move 3))
+                     (%chess-board-ref board (char move 0) (char move 1))
+                     (%chess-board-ref board (char move 0) (char move 1))
+                     #\Null)
+               ;; The four castling scenarios in regular chess
+               (cond ((string= move "e1g1")
+                      (setf (%chess-board-ref board #\f #\1)
+                            (%chess-board-ref board #\h #\1)
+                            (%chess-board-ref board #\h #\1)
+                            #\Null))
+                     ((string= move "e1c1")
+                      (setf (%chess-board-ref board #\d #\1)
+                            (%chess-board-ref board #\a #\1)
+                            (%chess-board-ref board #\a #\1)
+                            #\Null))
+                     ((string= move "e8g8")
+                      (setf (%chess-board-ref board #\f #\8)
+                            (%chess-board-ref board #\h #\8)
+                            (%chess-board-ref board #\h #\8)
+                            #\Null))
+                     ((string= move "e8c8")
+                      (setf (%chess-board-ref board #\d #\8)
+                            (%chess-board-ref board #\a #\8)
+                            (%chess-board-ref board #\a #\8)
+                            #\Null))))
         (error "Not a supported move to parse."))
     (vector-push move best-moves)
     board))
@@ -259,7 +279,10 @@
         (chess-engine-ponder-end name-pondering process-pondering (string= move ponder-move) prompt-pondering debug-stream)))
     new-ponder-move))
 
-;;; todo: record moves in algebraic notation
+;;; todo: Record moves in algebraic notation
+;;;
+;;; todo: Handle the end of the game instead of just going a certain
+;;; number of turns
 (defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10) (turns 3) debug-stream)
   (let ((process-1 (launch-program engine-name :input :stream :output :stream))
         (process-2 (launch-program engine-name :input :stream :output :stream))
