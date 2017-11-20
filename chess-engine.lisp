@@ -122,22 +122,22 @@
          (format t "~A : ~A~%" engine-name line)
          (with-input-from-string (command line :start 9)
            ;; Reads the actual best move
-           (vector-push (with-output-to-string (out-string)
-                          (do ((char (read-char command) (read-char command)))
-                              ((or (eql char :eof) (char= char #\Space)))
-                            (write-char char out-string)))
-                        best-moves)
-           ;; Reads ponder, if it exists. This assumes the next word
-           ;; either is ponder or does not exist.
-           (let ((ponder? (do ((char (read-char command nil :eof) (read-char command nil :eof)))
-                              ((or (eql char :eof) (char= char #\Space))
-                               (not (eql char :eof))))))
-             (format t "~A~%" ponder?)
+           (let ((ponder? t))
+             (vector-push (with-output-to-string (out-string)
+                            (do ((char (read-char command nil :eof) (read-char command nil :eof)))
+                                ((or (eql char :eof) (char= char #\Space))
+                                 (when (eql char :eof) (setf ponder? nil)))
+                              (write-char char out-string)))
+                          best-moves)
+             ;; This assumes the next word is ponder if it exists.
              (if ponder?
-                 ;; Assumes the rest of the line is the ponder command
-                 (vector-push (with-output-to-string (out-string)
-                                (read-line command))
-                              ponder-moves)
+                 (progn
+                   ;; Assumes the rest of the line is the ponder command
+                   (do ((char (read-char command) (read-char command)))
+                       ((char= char #\Space)))
+                   (vector-push (with-output-to-string (out-string)
+                                  (read-line command))
+                                ponder-moves))
                  (vector-push nil ponder-moves)))))
       (unless (and (>= (length line) 4) (string= "info" (subseq line 0 4)))
         (format t "~A : ~A~%" engine-name line)))))
@@ -226,6 +226,8 @@
                 (#\h 7)))
         new-value))
 
+;;; todo: handle castling, which seems to be just commanding the king
+;;; to move in the UCI move syntax
 (defun update-board (board best-moves)
   (declare (board board))
   (let ((move (vector-pop best-moves)))
