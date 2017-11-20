@@ -189,29 +189,40 @@
       (vector-push move best-moves)
       (chess-engine-ponder-end name-pondering process-pondering success prompt-pondering))))
 
+(declaim (inline %chess-board-ref))
+(defun %chess-board-ref (board char-0 char-1)
+  (aref board
+        (ecase char-1
+          (#\1 (- 8 1))
+          (#\2 (- 8 2))
+          (#\3 (- 8 3))
+          (#\4 (- 8 4))
+          (#\5 (- 8 5))
+          (#\6 (- 8 6))
+          (#\7 (- 8 7))
+          (#\8 (- 8 8)))
+        (ecase char-0
+          (#\a 0)
+          (#\b 1)
+          (#\c 2)
+          (#\d 3)
+          (#\e 4)
+          (#\f 5)
+          (#\g 6)
+          (#\h 7))))
+
 (defun update-board (board best-moves)
+  (declare (board board))
   (let ((move (vector-pop best-moves)))
+    (format t "~A : " move)
     (if (= (length move) 4)
-        (format t
-                "(~D, ~D)"
-                (ecase (char move 0)
-                  (#\a 0)
-                  (#\b 1)
-                  (#\c 2)
-                  (#\d 3)
-                  (#\e 4)
-                  (#\f 5)
-                  (#\g 6)
-                  (#\h 7))
-                (ecase (char move 1)
-                  (#\0 (- 7 0))
-                  (#\1 (- 7 1))
-                  (#\2 (- 7 2))
-                  (#\3 (- 7 3))
-                  (#\4 (- 7 4))
-                  (#\5 (- 7 5))
-                  (#\6 (- 7 6))
-                  (#\7 (-  7))))
+        (progn
+          (format t
+                  "~C "
+                  (%chess-board-ref board (char move 0) (char move 1)))
+          (format t
+                  "~C"
+                  (%chess-board-ref board (char move 2) (char move 3))))
         (error "Not a supported move to parse."))
     (vector-push move best-moves)
     board))
