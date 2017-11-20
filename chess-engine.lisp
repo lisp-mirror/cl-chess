@@ -113,7 +113,7 @@
 (defun chess-engine-update-position (chess-engine-process best-moves &optional ponder-move (prompt "> "))
   (run-command* "position startpos moves" (process-info-input chess-engine-process) best-moves ponder-move prompt))
 
-(defun chess-engine-move (engine-name chess-engine-process command-stream best-moves ponder-moves seconds &optional (prompt "> "))
+(defun chess-engine-move (engine-name chess-engine-process command best-moves ponder-moves seconds &optional (prompt "> "))
   (let ((chess-engine-input (process-info-input chess-engine-process))
         (chess-engine-output (process-info-output chess-engine-process)))
     (run-command (format nil "go movetime ~D000" seconds) chess-engine-input prompt)
@@ -122,31 +122,25 @@
         ((or (eql :eof line)
              (and (>= (length line) 8) (string= "bestmove" (subseq line 0 8))))
          (format t "~A : ~A~%" engine-name line)
-         (write-line line command-stream)
-         ;; Reads bestmove, but does nothing with it
-         (do ((char (read-char command-stream) (read-char command-stream)))
-             ((char= char #\Space))
-           ;; Don't optimize this loop away.
-          char)
+         (write-line line command :start 9)
          ;; Reads the actual best move
          (vector-push (with-output-to-string (out-string)
-                        (do ((char (read-char command-stream) (read-char command-stream)))
+                        (do ((char (read-char command) (read-char command)))
                             ((char= char #\Space))
                           (write-char char out-string)))
                       best-moves)
-         ;; Reads ponder, but does nothing with it
-         ;;
-         ;; fixme: This is an optional field
-         (do ((char (read-char command-stream) (read-char command-stream)))
-             ((char= char #\Space))
-           ;; Don't optimize this loop away.
-          char)
-         ;; Reads the actual ponder
-         (vector-push (with-output-to-string (out-string)
-                        (do ((char (read-char command-stream) (read-char command-stream)))
-                            ((char= char #\Newline))
-                          (write-char char out-string)))
-                      ponder-moves))
+         ;; Reads ponder, if it exists
+         (let ((ponder? t))
+           ;; Assumes the next word is "ponder" if it is there
+           (do ((char (read-char command nil :eof) (read-char command nil :eof)))
+               ((or (eq char :eof) (char= char #\Space))
+                (when (eq char :oef) (setf ponder? nil))))
+           ;; Assumes the rest of the line is the ponder command, if
+           ;; it's there
+           (when ponder?
+             (vector-push (with-output-to-string (out-string)
+                            (read-line command))
+                          ponder-moves))))
       (unless (and (>= (length line) 4) (string= "info" (subseq line 0 4)))
         (format t "~A : ~A~%" engine-name line)))))
 
