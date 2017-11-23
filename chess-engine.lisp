@@ -340,12 +340,13 @@
                          :data (data png)))))
 
 (defun make-chess-graphics (&key ecs hud-ecs labels mesh-keys width height)
-  (declare (ignore labels)
-           (ignore width))
+  (declare (ignore labels))
   (make-basic-entity hud-ecs
                      mesh-keys
                      :square
-                     :scale (vec (/ height 20f0) (/ height 20f0) 1f0))
+                     :location (vec (/ width 2.5f0) (/ height 2.5f0) 0f0)
+                     :scale (vec (/ height 20f0) (/ height 20f0) 1f0)
+                     :falling? nil)
   (make-fps-camera-entity ecs :location (vec 0f0 0f0 0f0)))
 
 ;;; todo: Record moves in algebraic notation
