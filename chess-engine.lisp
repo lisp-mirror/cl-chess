@@ -1,10 +1,30 @@
 (defpackage #:chess-engine
   (:use #:cl)
+  (:import-from #:pngload
+                #:data
+                #:height
+                #:load-file
+                #:width)
   (:import-from #:uiop
                 #:launch-program
+                #:make-pathname*
+                #:merge-pathnames*
                 #:process-info-input
                 #:process-info-output
-                #:wait-process))
+                #:wait-process)
+  (:import-from #:zombie-raptor
+                #:key-actions
+                #:key-bindings
+                #:main-data-directory
+                #:make-basic-entity
+                #:make-fps-camera-entity
+                #:make-settings
+                #:make-square
+                #:make-window
+                #:mouse-actions
+                #:shader-data
+                #:texture
+                #:vec))
 
 (in-package #:chess-engine)
 
@@ -298,22 +318,70 @@
         (chess-engine-ponder-end name-pondering process-pondering (string= move ponder-move) prompt-pondering debug-stream)))
     new-ponder-move))
 
+;;; Visuals
+
+(defun square-model ()
+  (list (cons :square (make-square :program :hud
+                                   :texture :chess-king-light-light
+                                   :color-r 1f0
+                                   :color-g 1f0
+                                   :color-b 1f0))))
+
+(defun textures ()
+  (let ((png (load-file (merge-pathnames* (make-pathname* :directory `(:relative "png") :name "kll" :type "png")
+                                          (main-data-directory "cl-chess"))
+                        :flip-y t
+                        :flatten t)))
+    (list (make-instance 'texture
+                         :name :chess-king-light-light
+                         :height (height png)
+                         :width (width png)
+                         :texel-size 3
+                         :data (data png)))))
+
+(defun make-chess-graphics (&key ecs hud-ecs labels mesh-keys width height)
+  (declare (ignore labels)
+           (ignore width))
+  (make-basic-entity hud-ecs
+                     mesh-keys
+                     :square
+                     :scale (vec (/ height 20f0) (/ height 20f0) 1f0))
+  (make-fps-camera-entity ecs :location (vec 0f0 0f0 0f0)))
+
 ;;; todo: Record moves in algebraic notation
 ;;;
 ;;; todo: Handle the end of the game instead of just going a certain
 ;;; number of turns
-(defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10) (turns 3) unicode debug-stream)
-  (let ((process-1 (launch-program engine-name :input :stream :output :stream))
-        (process-2 (launch-program engine-name :input :stream :output :stream))
-        (engine-name-1 (concatenate 'string engine-name "-1"))
-        (engine-name-2 (concatenate 'string engine-name "-2"))
-        (prompt-1 "1 > ")
-        (prompt-2 "2 > ")
-        (board (make-board))
-        ;; fixme: find a more efficient way to store moves
-        (best-moves (make-array 400 :fill-pointer 0))
-        (ponder-move "e2e4")
-        (threads (floor threads 2)))
+(defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10) (turns 3) unicode debug-stream (width 1280) (height 720))
+  (let* ((settings (make-settings :title "CL Chess"
+                                  :width width
+                                  :height height
+                                  :fullscreen nil
+                                  :app-name "cl-chess"
+                                  :msaa 4
+                                  :debug nil))
+         (window (make-window :settings settings
+                              :shader-data (shader-data)
+                              :textures (textures)
+                              :models (square-model)
+                              :mouse-actions (mouse-actions)
+                              :key-actions (key-actions)
+                              :key-bindings (key-bindings)
+                              :init-function #'make-chess-graphics
+                              :script-function (lambda (&key ecs hud-ecs labels time)
+                                                 (declare (ignore ecs hud-ecs labels time))
+                                                 nil)))
+         (process-1 (launch-program engine-name :input :stream :output :stream))
+         (process-2 (launch-program engine-name :input :stream :output :stream))
+         (engine-name-1 (concatenate 'string engine-name "-1"))
+         (engine-name-2 (concatenate 'string engine-name "-2"))
+         (prompt-1 "1 > ")
+         (prompt-2 "2 > ")
+         (board (make-board))
+         ;; fixme: find a more efficient way to store moves
+         (best-moves (make-array 400 :fill-pointer 0))
+         (ponder-move "e2e4")
+         (threads (floor (1- threads) 2)))
     (unwind-protect
          (progn
            (chess-engine-initialize engine-name-1 process-1 threads prompt-1 debug-stream)
@@ -340,7 +408,7 @@
              (terpri)
              (print-board board unicode)
              (terpri))
-           best-moves)
+           (values window best-moves))
       ;; Quits the chess engine.
       (quit-chess-engine process-1 prompt-1 debug-stream)
       (chess-engine-leftover-output engine-name-1 process-1 debug-stream)
