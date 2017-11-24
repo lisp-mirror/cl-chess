@@ -13,6 +13,8 @@
                 #:process-info-output
                 #:wait-process)
   (:import-from #:zombie-raptor
+                #:define-shader
+                #:define-shader-data
                 #:key-actions
                 #:key-bindings
                 #:main-data-directory
@@ -21,8 +23,8 @@
                 #:make-settings
                 #:make-square
                 #:make-window
+                #:model
                 #:mouse-actions
-                #:shader-data
                 #:texture
                 #:vec))
 
@@ -320,17 +322,77 @@
 
 ;;; Visuals
 
+(define-shader (vert :vertex-shader)
+    ((:in (position :vec3) :location 0)
+     (:in (normal :vec3) :location 1)
+     (:in (color :vec3) :location 2)
+     (:in (texcoord :vec3) :location 3)
+     (:uniform (view-matrix :mat4))
+     (:uniform (model-matrix :mat4))
+     (:uniform (projection-matrix :mat4))
+     (:uniform (normal-matrix :mat4)))
+    ((:out (frag-position :vec3) (:vec3 (:* model-matrix (:vec4 position 1f0))))
+     (:out (frag-color :vec3) color)
+     (:out (frag-texcoord :vec3) texcoord)
+     (:out (gl-position :vec4) (:* projection-matrix
+                                   view-matrix
+                                   model-matrix
+                                   (:vec4 position 1f0)))))
+
+(define-shader (frag :fragment-shader)
+    ((:in (frag-position :vec3))
+     (:in (frag-color :vec3))
+     (:in (frag-texcoord :vec3))
+     (:uniform (loaded-texture :sampler-2d-array)))
+    ((:out (out-color :vec4) (:vec4 object-color 1f0)))
+  (:define (texture-color :vec3) (:vec3 (:texture loaded-texture frag-texcoord)))
+  ;; (:define (object-color :vec3) (:mix frag-color texture-color 0.5f0))
+  (:define (object-color :vec3) texture-color))
+
+(define-shader-data shader-data
+    ((default :vertex vert :fragment frag))
+  frag
+  vert)
+
+(declaim (inline %make-square))
+(defun %make-square (texture-layer)
+  (let* ((*read-default-float-format* 'single-float)
+         (texture-layer (coerce texture-layer 'single-float))
+         (vertex-data '(-0.5 -0.5 0.0 0.0 0.0 1.0 0.5 0.5 0.5 0.0 0.0 0.0
+                         0.5 -0.5 0.0 0.0 0.0 1.0 0.5 0.5 0.5 1.0 0.0 0.0
+                         0.5  0.5 0.0 0.0 0.0 1.0 0.5 0.5 0.5 1.0 1.0 0.0
+                        -0.5  0.5 0.0 0.0 0.0 1.0 0.5 0.5 0.5 0.0 1.0 0.0))
+         (vertex-array (make-array 48
+                                   :element-type 'single-float
+                                   :initial-contents vertex-data)))
+    (setf (aref vertex-array 11) texture-layer
+          (aref vertex-array 23) texture-layer
+          (aref vertex-array 35) texture-layer
+          (aref vertex-array 47) texture-layer)
+    (make-instance 'model
+                   :vertex-array vertex-array
+                   :element-array (make-array 6
+                                              :element-type 'fixnum
+                                              :initial-contents '(0 1 2 2 3 0))
+                   :program :default
+                   :texture :chess-square
+                   :attribute-sizes #(3 3 3))))
+
 (defun square-model ()
-  (list (cons :square-0 (make-square :program :hud
-                                     :texture :chess-king-light-light
-                                     :color-r 1f0
-                                     :color-g 1f0
-                                     :color-b 1f0))
-        (cons :square-1 (make-square :program :hud
-                                     :texture :chess-king-dark-light
-                                     :color-r 1f0
-                                     :color-g 1f0
-                                     :color-b 1f0))))
+  (let ((case (readtable-case *readtable*))
+        (names #("xxd" "xxl" "bdd" "bdl" "bld" "bll" "kdd" "kdl" "kld" "kll"
+                 "ndd" "ndl" "nld" "nll" "pdd" "pdl" "pld" "pll" "qdd" "qdl"
+                 "qld" "qll" "rdd" "rdl" "rld" "rll")))
+    (loop for i from 0 below 26
+       collect
+         (cons (intern (concatenate 'string
+                                    #.(symbol-name '#:square-)
+                                    ;; (format nil "~D" i)
+                                    (if (eql case :upcase)
+                                        (string-upcase (elt names i))
+                                        (elt names i)))
+                       :keyword)
+               (%make-square i)))))
 
 (defun load-png (name)
   (load-file (merge-pathnames* (make-pathname* :directory `(:relative "png")
@@ -341,26 +403,44 @@
              :flatten t))
 
 (defun textures ()
-  (let ((kll (load-png "kll"))
-        (kdl (load-png "kld")))
+  (let ((chess-texture (make-array (* 26 64 64 3) :element-type '(unsigned-byte 8)))
+        (texture-offset 0))
+    (dotimes (i (* 64 64))
+      (setf (aref chess-texture (+ texture-offset 0 (* i 3))) #xd1
+            (aref chess-texture (+ texture-offset 1 (* i 3))) #x8b
+            (aref chess-texture (+ texture-offset 2 (* i 3))) #x47))
+    (incf texture-offset (* 64 64 3))
+    (dotimes (i (* 64 64))
+      (setf (aref chess-texture (+ texture-offset 0 (* i 3))) #xff
+            (aref chess-texture (+ texture-offset 1 (* i 3))) #xce
+            (aref chess-texture (+ texture-offset 2 (* i 3))) #x9e))
+    (incf texture-offset (* 64 64 3))
+    (dolist (file '("bdd" "bdl" "bld" "bll" "kdd" "kdl" "kld" "kll" "ndd" "ndl"
+                    "nld" "nll" "pdd" "pdl" "pld" "pll" "qdd" "qdl" "qld" "qll"
+                    "rdd" "rdl" "rld" "rll"))
+      (let ((png (load-png file)))
+        (unless (and (= 64 (height png))
+                     (= 64 (width png)))
+          (error "The images must be 64x64"))
+        (let ((texture-data (data png)))
+          (check-type texture-data (simple-array (unsigned-byte 8) (12288)))
+          (dotimes (i (length texture-data))
+            (setf (aref chess-texture (+ texture-offset i)) (aref texture-data i))))
+        (incf texture-offset (* 64 64 3))))
     (list (make-instance 'texture
-                         :name :chess-king-light-light
-                         :height (height kll)
-                         :width (width kll)
+                         :name :chess-square
+                         :height 64
+                         :width 64
+                         :depth 26
+                         :dimension 3
                          :texel-size 3
-                         :data (data kll))
-          (make-instance 'texture
-                         :name :chess-king-dark-light
-                         :height (height kdl)
-                         :width (width kdl)
-                         :texel-size 3
-                         :data (data kdl)))))
+                         :data chess-texture))))
 
 (declaim (inline %make-square-entity))
-(defun %make-square-entity (hud-ecs mesh-keys location scale light?)
+(defun %make-square-entity (hud-ecs mesh-keys location scale texture-layer)
   (make-basic-entity hud-ecs
                      mesh-keys
-                     (if light? :square-0 :square-1)
+                     texture-layer
                      :location location
                      :scale scale
                      :falling? nil))
@@ -376,8 +456,8 @@
             (%make-square-entity hud-ecs mesh-keys (vec x y 0f0) square-scale
                                  (if (or (and (zerop (mod j 2)) (not (zerop (mod i 2))))
                                          (and (not (zerop (mod j 2))) (zerop (mod i 2))))
-                                     t
-                                     nil))))))
+                                     :square-xxl
+                                     :square-xxd))))))
     (make-fps-camera-entity ecs :location (vec 0f0 0f0 0f0))))
 
 ;;; todo: Record moves in algebraic notation
