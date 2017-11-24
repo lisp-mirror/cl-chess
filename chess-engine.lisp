@@ -34,7 +34,8 @@
                 #:mouse-actions
                 #:shape
                 #:texture
-                #:vec))
+                #:vec)
+  (:export #:chess-engine))
 
 (in-package #:chess-engine)
 
@@ -632,6 +633,7 @@
       (error "Not a supported move to parse."))
   move)
 
+(declaim (inline make-chess-gui))
 (defun make-chess-gui (width height script-function)
   (let ((settings (make-settings :title "CL Chess"
                                  :width width
@@ -666,6 +668,15 @@
                        debug-info
                        (width 1280)
                        (height 720))
+  (check-type engine-name-1 string)
+  (check-type engine-name-2 string)
+  (check-type threads (integer 3 8192))
+  (check-type seconds (integer 1))
+  (check-type turns (integer -1 200))
+  (check-type debug-stream (or boolean stream))
+  (check-type debug-info boolean)
+  (check-type width (integer 200))
+  (check-type height (integer 200))
   (let* ((pipe-lock (make-lock))
          (pipe (make-instance 'character-pipe))
          (script-function (lambda (&key ecs hud-ecs labels time)
@@ -692,7 +703,6 @@
                             position-string))
          (position-string-position 23)
          (threads (floor (1- threads) 2)))
-    (check-type turns (integer -1 200))
     (unwind-protect
          (progn
            (chess-engine-initialize engine-name-1 process-1 threads prompt-1 debug-stream)
