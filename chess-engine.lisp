@@ -196,26 +196,12 @@
   (write-line command process-input)
   (force-output process-input))
 
-(defun run-command* (command process-input argument-vector &optional final-argument (prompt "> ") debug-stream)
+(defun run-command* (command process-input &key (prompt "> ") debug-stream end)
   (when debug-stream
     (write-string prompt debug-stream)
-    (write-string command debug-stream))
-  (write-string command process-input)
-  (dotimes (i (length argument-vector))
-    (when debug-stream
-      (write-char #\Space debug-stream)
-      (write-string (aref argument-vector i) debug-stream))
-    (write-char #\Space process-input)
-    (write-string (aref argument-vector i) process-input))
-  (when final-argument
-    (when debug-stream
-      (write-char #\Space debug-stream)
-      (write-string final-argument debug-stream))
-    (write-char #\Space process-input)
-    (write-string final-argument process-input))
-  (when debug-stream
+    (write-string command debug-stream :end end)
     (terpri debug-stream))
-  (terpri process-input)
+  (write-line command process-input :end end)
   (force-output process-input))
 
 (defun quit-chess-engine (process &optional (prompt "> ") debug-stream)
@@ -252,9 +238,18 @@
       (when debug-stream
         (format debug-stream "~A : ~A~%" engine-name ready?)))))
 
-(defun chess-engine-update-position (chess-engine-process best-moves &optional ponder-move (prompt "> ") debug-stream)
-  (run-command* "position startpos moves" (process-info-input chess-engine-process) best-moves ponder-move prompt debug-stream))
+(defun chess-engine-update-position (chess-engine-process position-string &key ponder-move (prompt "> ") debug-stream end)
+  (declare ((or null (simple-array character (4))) ponder-move))
+  (when ponder-move
+    (setf (char position-string end) #\Space)
+    (dotimes (i 4)
+      (setf (char position-string (1+ (+ end i))) (char ponder-move i))))
+  (run-command* position-string (process-info-input chess-engine-process) :end (if ponder-move (+ end 5) end) :prompt prompt :debug-stream debug-stream)
+  (when ponder-move
+    (dotimes (i 5)
+      (setf (char position-string (+ end i)) #\Null))))
 
+;;; todo: what is move when the move is a promotion? is it length 5?
 (defun chess-engine-move (engine-name chess-engine-process seconds &optional (prompt "> ") debug-stream debug-info)
   (let ((chess-engine-input (process-info-input chess-engine-process))
         (chess-engine-output (process-info-output chess-engine-process)))
@@ -267,25 +262,16 @@
              (and (>= (length line) 8) (string= "bestmove" (subseq line 0 8))))
          (if checkmate?
              (values "CHECKMATE" nil)
-             (progn
+             (let ((ponder? (position #\Space line :start 9)))
                (when debug-stream
                  (format debug-stream "~A : ~A~%" engine-name line))
-               (with-input-from-string (command line :start 9)
-                 ;; Reads the actual best move
-                 (let ((ponder? t))
-                   (values (with-output-to-string (out-string)
-                               (do ((char (read-char command nil :eof) (read-char command nil :eof)))
-                                   ((or (eql char :eof) (char= char #\Space))
-                                    (when (eql char :eof) (setf ponder? nil)))
-                                 (write-char char out-string)))
-                           ;; This assumes the next word is ponder if it exists.
-                           (if ponder?
-                               (progn
-                                 ;; Assumes the rest of the line is the ponder command
-                                 (do ((char (read-char command) (read-char command)))
-                                     ((char= char #\Space)))
-                                 (with-output-to-string (out-string) (read-line command)))
-                               nil)))))))
+               (values (subseq line 9 ponder?)
+                       (if ponder?
+                           (if (and (> (length line) (+ 8 ponder?))
+                                    (string= "ponder " (subseq line (1+ ponder?) (+ 8 ponder?))))
+                               (subseq line (+ 8 ponder?))
+                               (error "Invalid syntax in line: ~A" line))
+                           nil)))))
       (let ((info? (and (>= (length line) 4) (string= "info" (subseq line 0 4)))))
         (when info?
           (let ((mate? (search "mate " line)))
@@ -331,19 +317,26 @@
 
 (defun chess-engine-half-turn (process-active name-active prompt-active
                                process-pondering name-pondering prompt-pondering
+                               position-string position-string-position
                                best-moves ponder-move
                                seconds
                                debug-stream
                                debug-info)
+  (declare ((or null (simple-array character (4))) ponder-move))
   (let ((move nil)
         (new-ponder-move nil))
-    (chess-engine-update-position process-active best-moves nil prompt-active debug-stream)
+    (chess-engine-update-position process-active position-string :prompt prompt-active :debug-stream debug-stream :end position-string-position)
     (when ponder-move
-      (chess-engine-update-position process-pondering best-moves ponder-move prompt-pondering debug-stream)
+      (chess-engine-update-position process-pondering position-string :ponder-move ponder-move :prompt prompt-pondering :debug-stream debug-stream :end position-string-position)
       (chess-command-ponder-start process-pondering prompt-pondering debug-stream))
     (setf (values move new-ponder-move)
           (chess-engine-move name-active process-active seconds prompt-active debug-stream debug-info))
+    (check-type move (simple-array character (4)))
+    (check-type new-ponder-move (or null (simple-array character (4))) ponder-move)
     (vector-push move best-moves)
+    (setf (char position-string position-string-position) #\Space)
+    (dotimes (i 4)
+      (setf (char position-string (1+ (+ position-string-position i))) (char move i)))
     (when ponder-move
       (chess-engine-ponder-end name-pondering process-pondering (string= move ponder-move) prompt-pondering debug-stream debug-info))
     (values new-ponder-move (string= move "CHECKMATE"))))
@@ -690,7 +683,12 @@
          (board (make-board))
          ;; fixme: find a more efficient way to store moves
          (best-moves (make-array 400 :fill-pointer 0))
-         (ponder-move "e2e4")
+         (position-string (let* ((position-string (make-array (+ 23 (* 400 5)) :element-type 'character))
+                                 (position-string-start "position startpos moves"))
+                            (dotimes (i (length position-string-start))
+                              (setf (char position-string i) (char position-string-start i)))
+                            position-string))
+         (position-string-position 23)
          (threads (floor (1- threads) 2)))
     (unwind-protect
          (progn
@@ -699,12 +697,15 @@
            (values window
                    best-moves
                    (do ((i 0 (1+ i))
+                        (ponder-move "e2e4")
+                        (position-string-position position-string-position (+ 10 position-string-position))
                         (checkmate? nil))
                        ((or (= i turns) checkmate?)
                         (if checkmate? "Checkmate!" "Out of turns!"))
                      (setf (values ponder-move checkmate?)
                            (chess-engine-half-turn process-1 engine-name-1 prompt-1
                                                    process-2 engine-name-2 prompt-2
+                                                   position-string position-string-position
                                                    best-moves ponder-move
                                                    seconds
                                                    debug-stream
@@ -715,6 +716,7 @@
                        (setf (values ponder-move checkmate?)
                              (chess-engine-half-turn process-2 engine-name-2 prompt-2
                                                      process-1 engine-name-1 prompt-1
+                                                     position-string (+ 5 position-string-position)
                                                      best-moves ponder-move
                                                      seconds
                                                      debug-stream
