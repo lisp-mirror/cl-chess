@@ -25,6 +25,7 @@
                 #:make-window
                 #:model
                 #:mouse-actions
+                #:shape
                 #:texture
                 #:vec))
 
@@ -322,6 +323,34 @@
 
 ;;; Visuals
 
+(progn
+  (defconstant +xxd+ 0)
+  (defconstant +xxl+ 1)
+  (defconstant +bdd+ 2)
+  (defconstant +bdl+ 3)
+  (defconstant +bld+ 4)
+  (defconstant +bll+ 5)
+  (defconstant +kdd+ 6)
+  (defconstant +kdl+ 7)
+  (defconstant +kld+ 8)
+  (defconstant +kll+ 9)
+  (defconstant +ndd+ 10)
+  (defconstant +ndl+ 11)
+  (defconstant +nld+ 12)
+  (defconstant +nll+ 13)
+  (defconstant +pdd+ 14)
+  (defconstant +pdl+ 15)
+  (defconstant +pld+ 16)
+  (defconstant +pll+ 17)
+  (defconstant +qdd+ 18)
+  (defconstant +qdl+ 19)
+  (defconstant +qld+ 20)
+  (defconstant +qll+ 21)
+  (defconstant +rdd+ 22)
+  (defconstant +rdl+ 23)
+  (defconstant +rld+ 24)
+  (defconstant +rll+ 25))
+
 (define-shader (vert :vertex-shader)
     ((:in (position :vec3) :location 0)
      (:in (normal :vec3) :location 1)
@@ -447,6 +476,7 @@
 
 (defun make-chess-graphics (&key ecs hud-ecs labels mesh-keys width height)
   (declare (ignore labels width))
+  ;; Sets the board and camera
   (let* ((scale (/ height 20f0))
          (square-scale (vec scale scale 1f0)))
     (dotimes (j 8)
@@ -458,7 +488,40 @@
                                          (and (not (zerop (mod j 2))) (zerop (mod i 2))))
                                      :square-xxl
                                      :square-xxd))))))
-    (make-fps-camera-entity ecs :location (vec 0f0 0f0 0f0))))
+    (make-fps-camera-entity ecs :location (vec 0f0 0f0 0f0)))
+  ;; Sets the pieces
+  (psetf (shape hud-ecs 00) +rld+
+         (shape hud-ecs 01) +nll+
+         (shape hud-ecs 02) +bld+
+         (shape hud-ecs 03) +qll+
+         (shape hud-ecs 04) +kld+
+         (shape hud-ecs 05) +bll+
+         (shape hud-ecs 06) +nld+
+         (shape hud-ecs 07) +rll+
+         (shape hud-ecs 08) +pll+
+         (shape hud-ecs 09) +pld+
+         (shape hud-ecs 10) +pll+
+         (shape hud-ecs 11) +pld+
+         (shape hud-ecs 12) +pll+
+         (shape hud-ecs 13) +pld+
+         (shape hud-ecs 14) +pll+
+         (shape hud-ecs 15) +pld+
+         (shape hud-ecs 63) +rdd+
+         (shape hud-ecs 62) +ndl+
+         (shape hud-ecs 61) +bdd+
+         (shape hud-ecs 60) +kdl+
+         (shape hud-ecs 59) +qdd+
+         (shape hud-ecs 58) +bdl+
+         (shape hud-ecs 57) +ndd+
+         (shape hud-ecs 56) +rdl+
+         (shape hud-ecs 55) +pdl+
+         (shape hud-ecs 54) +pdd+
+         (shape hud-ecs 53) +pdl+
+         (shape hud-ecs 52) +pdd+
+         (shape hud-ecs 51) +pdl+
+         (shape hud-ecs 50) +pdd+
+         (shape hud-ecs 49) +pdl+
+         (shape hud-ecs 48) +pdd+))
 
 ;;; todo: Record moves in algebraic notation
 ;;;
