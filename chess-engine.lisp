@@ -632,13 +632,30 @@
       (error "Not a supported move to parse."))
   move)
 
+(defun make-chess-gui (width height script-function)
+  (let ((settings (make-settings :title "CL Chess"
+                                 :width width
+                                 :height height
+                                 :fullscreen nil
+                                 :app-name "cl-chess"
+                                 :msaa 4
+                                 :debug nil)))
+    (make-window :settings settings
+                 :shader-data (shader-data)
+                 :textures (textures)
+                 :models (square-model)
+                 :mouse-actions (mouse-actions)
+                 :key-actions (key-actions)
+                 :key-bindings (key-bindings)
+                 :init-function #'make-chess-graphics
+                 :script-function script-function)))
+
 ;;; todo: Record moves in algebraic notation
 ;;;
 ;;; todo: Handle draws and other edge cases.
 ;;;
-;;; Note: Having an infinite number of turns (i.e. turns -1 or
-;;; something similar) is not recommended until the edge cases are
-;;; handled, e.g. draws.
+;;; Note: Having an infinite number of turns (i.e. -1 turns) is not
+;;; recommended until the edge cases are handled, e.g. draws.
 (defun chess-engine (&key
                        (engine-name-1 "stockfish")
                        (engine-name-2 "stockfish")
@@ -658,25 +675,10 @@
                                 (do ((command (read-line pipe nil :eof) (read-line pipe nil :eof)))
                                     ((eql command :eof))
                                   (update-visual-board hud-ecs command))))))
-         (settings (make-settings :title "CL Chess"
-                                  :width width
-                                  :height height
-                                  :fullscreen nil
-                                  :app-name "cl-chess"
-                                  :msaa 4
-                                  :debug nil))
-         (window (make-window :settings settings
-                              :shader-data (shader-data)
-                              :textures (textures)
-                              :models (square-model)
-                              :mouse-actions (mouse-actions)
-                              :key-actions (key-actions)
-                              :key-bindings (key-bindings)
-                              :init-function #'make-chess-graphics
-                              :script-function script-function))
+         (window (make-chess-gui width height script-function))
+         (mirror-match? (string= engine-name-1 engine-name-2))
          (process-1 (launch-program engine-name-1 :input :stream :output :stream))
          (process-2 (launch-program engine-name-2 :input :stream :output :stream))
-         (mirror-match? (string= engine-name-1 engine-name-2))
          (engine-name-1 (if mirror-match? (concatenate 'string engine-name-1 "-1") engine-name-1))
          (engine-name-2 (if mirror-match? (concatenate 'string engine-name-2 "-2") engine-name-2))
          (prompt-1 "1 > ")
