@@ -509,7 +509,7 @@
 (defun make-chess-graphics (&key ecs hud-ecs labels mesh-keys width height)
   (declare (ignore labels width))
   ;; Sets the board and camera
-  (let* ((scale (/ height 20f0))
+  (let* ((scale (min (/ height 10f0) 64f0))
          (square-scale (vec scale scale 1f0)))
     (dotimes (j 8)
       (let ((y (* (- (coerce j 'single-float) 3.5f0) scale)))
