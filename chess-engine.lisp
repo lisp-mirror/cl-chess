@@ -255,7 +255,7 @@
 (defun chess-engine-update-position (chess-engine-process best-moves &optional ponder-move (prompt "> ") debug-stream)
   (run-command* "position startpos moves" (process-info-input chess-engine-process) best-moves ponder-move prompt debug-stream))
 
-(defun chess-engine-move (engine-name chess-engine-process best-moves seconds &optional (prompt "> ") debug-stream debug-info)
+(defun chess-engine-move (engine-name chess-engine-process seconds &optional (prompt "> ") debug-stream debug-info)
   (let ((chess-engine-input (process-info-input chess-engine-process))
         (chess-engine-output (process-info-output chess-engine-process)))
     (run-command (format nil "go movetime ~D000" seconds) chess-engine-input prompt debug-stream)
@@ -266,27 +266,26 @@
              checkmate?
              (and (>= (length line) 8) (string= "bestmove" (subseq line 0 8))))
          (if checkmate?
-             (vector-push "CHECKMATE" best-moves)
+             (values "CHECKMATE" nil)
              (progn
                (when debug-stream
                  (format debug-stream "~A : ~A~%" engine-name line))
                (with-input-from-string (command line :start 9)
                  ;; Reads the actual best move
                  (let ((ponder? t))
-                   (vector-push (with-output-to-string (out-string)
-                                  (do ((char (read-char command nil :eof) (read-char command nil :eof)))
-                                      ((or (eql char :eof) (char= char #\Space))
-                                       (when (eql char :eof) (setf ponder? nil)))
-                                    (write-char char out-string)))
-                                best-moves)
-                   ;; This assumes the next word is ponder if it exists.
-                   (if ponder?
-                       (progn
-                         ;; Assumes the rest of the line is the ponder command
-                         (do ((char (read-char command) (read-char command)))
-                             ((char= char #\Space)))
-                         (with-output-to-string (out-string) (read-line command)))
-                       nil))))))
+                   (values (with-output-to-string (out-string)
+                               (do ((char (read-char command nil :eof) (read-char command nil :eof)))
+                                   ((or (eql char :eof) (char= char #\Space))
+                                    (when (eql char :eof) (setf ponder? nil)))
+                                 (write-char char out-string)))
+                           ;; This assumes the next word is ponder if it exists.
+                           (if ponder?
+                               (progn
+                                 ;; Assumes the rest of the line is the ponder command
+                                 (do ((char (read-char command) (read-char command)))
+                                     ((char= char #\Space)))
+                                 (with-output-to-string (out-string) (read-line command)))
+                               nil)))))))
       (let ((info? (and (>= (length line) 4) (string= "info" (subseq line 0 4)))))
         (when info?
           (let ((mate? (search "mate " line)))
@@ -336,17 +335,18 @@
                                seconds
                                debug-stream
                                debug-info)
-  (let ((new-ponder-move nil))
+  (let ((move nil)
+        (new-ponder-move nil))
     (chess-engine-update-position process-active best-moves nil prompt-active debug-stream)
     (when ponder-move
       (chess-engine-update-position process-pondering best-moves ponder-move prompt-pondering debug-stream)
       (chess-command-ponder-start process-pondering prompt-pondering debug-stream))
-    (setf new-ponder-move (chess-engine-move name-active process-active best-moves seconds prompt-active debug-stream debug-info))
-    (let ((move (vector-pop best-moves)))
-      (vector-push move best-moves)
-      (when ponder-move
-        (chess-engine-ponder-end name-pondering process-pondering (string= move ponder-move) prompt-pondering debug-stream debug-info))
-      (values new-ponder-move (string= move "CHECKMATE")))))
+    (setf (values move new-ponder-move)
+          (chess-engine-move name-active process-active seconds prompt-active debug-stream debug-info))
+    (vector-push move best-moves)
+    (when ponder-move
+      (chess-engine-ponder-end name-pondering process-pondering (string= move ponder-move) prompt-pondering debug-stream debug-info))
+    (values new-ponder-move (string= move "CHECKMATE"))))
 
 ;;; Visuals
 
