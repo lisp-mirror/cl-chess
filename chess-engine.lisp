@@ -255,7 +255,7 @@
 (defun chess-engine-update-position (chess-engine-process best-moves &optional ponder-move (prompt "> ") debug-stream)
   (run-command* "position startpos moves" (process-info-input chess-engine-process) best-moves ponder-move prompt debug-stream))
 
-(defun chess-engine-move (engine-name chess-engine-process best-moves seconds &optional (prompt "> ") debug-stream)
+(defun chess-engine-move (engine-name chess-engine-process best-moves seconds &optional (prompt "> ") debug-stream debug-info)
   (let ((chess-engine-input (process-info-input chess-engine-process))
         (chess-engine-output (process-info-output chess-engine-process)))
     (run-command (format nil "go movetime ~D000" seconds) chess-engine-input prompt debug-stream)
@@ -282,13 +282,15 @@
                        ((char= char #\Space)))
                    (with-output-to-string (out-string) (read-line command)))
                  nil))))
-      (unless (or (not debug-stream) (and (>= (length line) 4) (string= "info" (subseq line 0 4))))
-        (format debug-stream "~A : ~A~%" engine-name line)))))
+      (let ((info? (and (>= (length line) 4) (string= "info" (subseq line 0 4)))))
+        (unless (or (not debug-stream)
+                    (and (not debug-info) info?))
+          (format debug-stream "~A : ~A~%" engine-name line))))))
 
 (defun chess-command-ponder-start (chess-engine-process &optional (prompt "> ") debug-stream)
   (run-command "go ponder" (process-info-input chess-engine-process) prompt debug-stream))
 
-(defun chess-engine-ponder-end (engine-name chess-engine-process success &optional (prompt "> ") debug-stream)
+(defun chess-engine-ponder-end (engine-name chess-engine-process success &optional (prompt "> ") debug-stream debug-info)
   (let ((chess-engine-input (process-info-input chess-engine-process))
         (chess-engine-output (process-info-output chess-engine-process)))
     (run-command (if success "ponderhit" "stop") chess-engine-input prompt debug-stream)
@@ -300,8 +302,10 @@
              (and (>= (length line) 8) (string= "bestmove" (subseq line 0 8))))
          (when debug-stream
            (format debug-stream "~A : ~A~%" engine-name line)))
-      (unless (or (not debug-stream) (and (>= (length line) 4) (string= "info" (subseq line 0 4))))
-        (format debug-stream "~A : ~A~%" engine-name line)))))
+      (let ((info? (and (>= (length line) 4) (string= "info" (subseq line 0 4)))))
+        (unless (or (not debug-stream)
+                    (and (not debug-info) info?))
+          (format debug-stream "~A : ~A~%" engine-name line))))))
 
 (defun chess-engine-leftover-output (engine-name chess-engine-process debug-stream)
   (let ((output (process-info-output chess-engine-process)))
@@ -315,17 +319,18 @@
                                process-pondering name-pondering prompt-pondering
                                best-moves ponder-move
                                seconds
-                               debug-stream)
+                               debug-stream
+                               debug-info)
   (let ((new-ponder-move nil))
     (chess-engine-update-position process-active best-moves nil prompt-active debug-stream)
     (when ponder-move
       (chess-engine-update-position process-pondering best-moves ponder-move prompt-pondering debug-stream)
       (chess-command-ponder-start process-pondering prompt-pondering debug-stream))
-    (setf new-ponder-move (chess-engine-move name-active process-active best-moves seconds prompt-active debug-stream))
+    (setf new-ponder-move (chess-engine-move name-active process-active best-moves seconds prompt-active debug-stream debug-info))
     (let ((move (vector-pop best-moves)))
       (vector-push move best-moves)
       (when ponder-move
-        (chess-engine-ponder-end name-pondering process-pondering (string= move ponder-move) prompt-pondering debug-stream)))
+        (chess-engine-ponder-end name-pondering process-pondering (string= move ponder-move) prompt-pondering debug-stream debug-info)))
     new-ponder-move))
 
 ;;; Visuals
@@ -633,7 +638,7 @@
 ;;;
 ;;; todo: Handle the end of the game instead of just going a certain
 ;;; number of turns
-(defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10) (turns 3) debug-stream (width 1280) (height 720))
+(defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10) (turns 3) debug-stream debug-info (width 1280) (height 720))
   (let* ((pipe-lock (make-lock))
          (pipe (make-instance 'character-pipe))
          (settings (make-settings :title "CL Chess"
@@ -678,14 +683,16 @@
                                                        process-2 engine-name-2 prompt-2
                                                        best-moves ponder-move
                                                        seconds
-                                                       debug-stream))
+                                                       debug-stream
+                                                       debug-info))
              (update-board board best-moves)
              (%send-update-board-message pipe pipe-lock best-moves)
              (setf ponder-move (chess-engine-half-turn process-2 engine-name-2 prompt-2
                                                        process-1 engine-name-1 prompt-1
                                                        best-moves ponder-move
                                                        seconds
-                                                       debug-stream))
+                                                       debug-stream
+                                                       debug-info))
              (update-board board best-moves)
              (%send-update-board-message pipe pipe-lock best-moves))
            (values window best-moves))
