@@ -153,38 +153,36 @@
         new-value))
 
 ;;; todo: Verify that the castling is legal
-(defun update-board (board best-moves)
+(defun update-board (board move)
   (declare (board board))
-  (let ((move (vector-pop best-moves)))
-    (if (= (length move) 4)
-        (progn (setf (%chess-board-ref board (char move 2) (char move 3))
-                     (%chess-board-ref board (char move 0) (char move 1))
-                     (%chess-board-ref board (char move 0) (char move 1))
-                     #\Null)
-               ;; The four castling scenarios in regular chess
-               (cond ((string= move "e1g1")
-                      (setf (%chess-board-ref board #\f #\1)
-                            (%chess-board-ref board #\h #\1)
-                            (%chess-board-ref board #\h #\1)
-                            #\Null))
-                     ((string= move "e1c1")
-                      (setf (%chess-board-ref board #\d #\1)
-                            (%chess-board-ref board #\a #\1)
-                            (%chess-board-ref board #\a #\1)
-                            #\Null))
-                     ((string= move "e8g8")
-                      (setf (%chess-board-ref board #\f #\8)
-                            (%chess-board-ref board #\h #\8)
-                            (%chess-board-ref board #\h #\8)
-                            #\Null))
-                     ((string= move "e8c8")
-                      (setf (%chess-board-ref board #\d #\8)
-                            (%chess-board-ref board #\a #\8)
-                            (%chess-board-ref board #\a #\8)
-                            #\Null))))
-        (error "Not a supported move to parse."))
-    (vector-push move best-moves)
-    board))
+  (if (= (length move) 4)
+      (progn (setf (%chess-board-ref board (char move 2) (char move 3))
+                   (%chess-board-ref board (char move 0) (char move 1))
+                   (%chess-board-ref board (char move 0) (char move 1))
+                   #\Null)
+             ;; The four castling scenarios in regular chess
+             (cond ((string= move "e1g1")
+                    (setf (%chess-board-ref board #\f #\1)
+                          (%chess-board-ref board #\h #\1)
+                          (%chess-board-ref board #\h #\1)
+                          #\Null))
+                   ((string= move "e1c1")
+                    (setf (%chess-board-ref board #\d #\1)
+                          (%chess-board-ref board #\a #\1)
+                          (%chess-board-ref board #\a #\1)
+                          #\Null))
+                   ((string= move "e8g8")
+                    (setf (%chess-board-ref board #\f #\8)
+                          (%chess-board-ref board #\h #\8)
+                          (%chess-board-ref board #\h #\8)
+                          #\Null))
+                   ((string= move "e8c8")
+                    (setf (%chess-board-ref board #\d #\8)
+                          (%chess-board-ref board #\a #\8)
+                          (%chess-board-ref board #\a #\8)
+                          #\Null))))
+      (error "Not a supported move: ~A" move))
+  board)
 
 ;;; Chess engine (UCI)
 
@@ -318,7 +316,7 @@
 (defun chess-engine-half-turn (process-active name-active prompt-active
                                process-pondering name-pondering prompt-pondering
                                position-string position-string-position
-                               best-moves ponder-move
+                               ponder-move
                                seconds
                                debug-stream
                                debug-info)
@@ -333,13 +331,12 @@
           (chess-engine-move name-active process-active seconds prompt-active debug-stream debug-info))
     (check-type move (simple-array character (4)))
     (check-type new-ponder-move (or null (simple-array character (4))) ponder-move)
-    (vector-push move best-moves)
     (setf (char position-string position-string-position) #\Space)
     (dotimes (i 4)
       (setf (char position-string (1+ (+ position-string-position i))) (char move i)))
     (when ponder-move
       (chess-engine-ponder-end name-pondering process-pondering (string= move ponder-move) prompt-pondering debug-stream debug-info))
-    (values new-ponder-move (string= move "CHECKMATE"))))
+    (values move new-ponder-move (string= move "CHECKMATE"))))
 
 ;;; Visuals
 
@@ -635,13 +632,6 @@
       (error "Not a supported move to parse."))
   move)
 
-(declaim (inline %send-update-board-message))
-(defun %send-update-board-message (pipe pipe-lock best-moves)
-  (let ((move (vector-pop best-moves)))
-    (with-lock-held (pipe-lock)
-      (write-line move pipe))
-    (vector-push move best-moves)))
-
 ;;; todo: Record moves in algebraic notation
 ;;;
 ;;; todo: Handle draws and other edge cases.
@@ -681,8 +671,7 @@
          (prompt-1 "1 > ")
          (prompt-2 "2 > ")
          (board (make-board))
-         ;; fixme: find a more efficient way to store moves
-         (best-moves (make-array 400 :fill-pointer 0))
+         (moves (make-array 400 :fill-pointer 0))
          (position-string (let* ((position-string (make-array (+ 23 (* 400 5)) :element-type 'character))
                                  (position-string-start "position startpos moves"))
                             (dotimes (i (length position-string-start))
@@ -690,40 +679,47 @@
                             position-string))
          (position-string-position 23)
          (threads (floor (1- threads) 2)))
+    (check-type turns (integer -1 200))
     (unwind-protect
          (progn
            (chess-engine-initialize engine-name-1 process-1 threads prompt-1 debug-stream)
            (chess-engine-initialize engine-name-2 process-2 threads prompt-2 debug-stream)
            (values window
-                   best-moves
+                   moves
                    (do ((i 0 (1+ i))
+                        (move nil)
                         (ponder-move "e2e4")
                         (position-string-position position-string-position (+ 10 position-string-position))
                         (checkmate? nil))
                        ((or (= i turns) checkmate?)
                         (if checkmate? "Checkmate!" "Out of turns!"))
-                     (setf (values ponder-move checkmate?)
+                     (format t "~A~%" move)
+                     (setf (values move ponder-move checkmate?)
                            (chess-engine-half-turn process-1 engine-name-1 prompt-1
                                                    process-2 engine-name-2 prompt-2
                                                    position-string position-string-position
-                                                   best-moves ponder-move
+                                                   ponder-move
                                                    seconds
                                                    debug-stream
                                                    debug-info))
+                     (vector-push move moves)
                      (unless checkmate?
-                       (update-board board best-moves)
-                       (%send-update-board-message pipe pipe-lock best-moves)
-                       (setf (values ponder-move checkmate?)
+                       (update-board board move)
+                       (with-lock-held (pipe-lock)
+                         (write-line move pipe))
+                       (setf (values move ponder-move checkmate?)
                              (chess-engine-half-turn process-2 engine-name-2 prompt-2
                                                      process-1 engine-name-1 prompt-1
                                                      position-string (+ 5 position-string-position)
-                                                     best-moves ponder-move
+                                                     ponder-move
                                                      seconds
                                                      debug-stream
                                                      debug-info))
+                       (vector-push move moves)
                        (unless checkmate?
-                         (update-board board best-moves)
-                         (%send-update-board-message pipe pipe-lock best-moves))))))
+                         (update-board board move)
+                         (with-lock-held (pipe-lock)
+                           (write-line move pipe)))))))
       ;; Quits the chess engine.
       (quit-chess-engine process-1 prompt-1 debug-stream)
       (chess-engine-leftover-output engine-name-1 process-1 debug-stream)
