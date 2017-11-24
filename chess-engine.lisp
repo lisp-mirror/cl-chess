@@ -1,5 +1,8 @@
 (defpackage #:chess-engine
   (:use #:cl)
+  (:import-from #:bordeaux-threads
+                #:make-lock
+                #:with-lock-held)
   (:import-from #:pngload
                 #:data
                 #:height
@@ -13,8 +16,12 @@
                 #:process-info-output
                 #:wait-process)
   (:import-from #:zombie-raptor
+                #:character-pipe
                 #:define-shader
                 #:define-shader-data
+                #:empty?
+                #:entity-component-system
+                #:flat-index
                 #:key-actions
                 #:key-bindings
                 #:main-data-directory
@@ -474,6 +481,11 @@
                      :scale scale
                      :falling? nil))
 
+(declaim (inline %light?))
+(defun %light? (x y)
+  (or (and (zerop (mod y 2)) (not (zerop (mod x 2))))
+      (and (not (zerop (mod y 2))) (zerop (mod x 2)))))
+
 (defun make-chess-graphics (&key ecs hud-ecs labels mesh-keys width height)
   (declare (ignore labels width))
   ;; Sets the board and camera
@@ -484,8 +496,7 @@
         (dotimes (i 8)
           (let ((x (* (- (coerce i 'single-float) 3.5f0) scale)))
             (%make-square-entity hud-ecs mesh-keys (vec x y 0f0) square-scale
-                                 (if (or (and (zerop (mod j 2)) (not (zerop (mod i 2))))
-                                         (and (not (zerop (mod j 2))) (zerop (mod i 2))))
+                                 (if (%light? i j)
                                      :square-xxl
                                      :square-xxd))))))
     (make-fps-camera-entity ecs :location (vec 0f0 0f0 0f0)))
@@ -523,12 +534,109 @@
          (shape hud-ecs 49) +pdl+
          (shape hud-ecs 48) +pdd+))
 
+(declaim (inline %char-to-coords))
+(defun %char-to-coords (char-0 char-1)
+  (values (ecase char-0
+            (#\a 0)
+            (#\b 1)
+            (#\c 2)
+            (#\d 3)
+            (#\e 4)
+            (#\f 5)
+            (#\g 6)
+            (#\h 7))
+          (ecase char-1
+            (#\1 0)
+            (#\2 1)
+            (#\3 2)
+            (#\4 3)
+            (#\5 4)
+            (#\6 5)
+            (#\7 6)
+            (#\8 7))))
+
+(declaim (inline %char-to-flat-index))
+(defun %char-to-flat-index (char-0 char-1)
+  (flat-index 1
+              8
+              (ecase char-0
+                (#\a 0)
+                (#\b 1)
+                (#\c 2)
+                (#\d 3)
+                (#\e 4)
+                (#\f 5)
+                (#\g 6)
+                (#\h 7))
+              (ecase char-1
+                (#\1 0)
+                (#\2 1)
+                (#\3 2)
+                (#\4 3)
+                (#\5 4)
+                (#\6 5)
+                (#\7 6)
+                (#\8 7))))
+
+;;; todo: Verify that the castling is legal
+(defun update-visual-board (hud-ecs move)
+  (declare (entity-component-system hud-ecs))
+  (if (= (length move) 4)
+      (multiple-value-bind (start-x start-y)
+          (%char-to-coords (char move 0) (char move 1))
+        (multiple-value-bind (end-x end-y)
+            (%char-to-coords (char move 2) (char move 3))
+          (let ((start-light? (%light? start-x start-y))
+                (end-light? (%light? end-x end-y))
+                (starting-piece (shape hud-ecs (flat-index 1 8 start-x start-y))))
+            (progn (setf (shape hud-ecs (flat-index 1 8 end-x end-y))
+                         (if (or (and start-light? end-light?)
+                                 (not (or start-light? end-light?)))
+                             starting-piece
+                             (if start-light?
+                                 (1- starting-piece)
+                                 (1+ starting-piece)))
+                         (shape hud-ecs (flat-index 1 8 start-x start-y))
+                         (if start-light? +xxl+ +xxd+))
+                   ;; The four castling scenarios in regular chess
+                   (cond ((string= move "e1g1")
+                          (setf (shape hud-ecs (%char-to-flat-index #\f #\1))
+                                +rll+
+                                (shape hud-ecs (%char-to-flat-index #\h #\1))
+                                +xxl+))
+                         ((string= move "e1c1")
+                          (setf (shape hud-ecs (%char-to-flat-index #\d #\1))
+                                +rll+
+                                (shape hud-ecs (%char-to-flat-index #\a #\1))
+                                +xxd+))
+                         ((string= move "e8g8")
+                          (setf (shape hud-ecs (%char-to-flat-index #\f #\8))
+                                +rdd+
+                                (shape hud-ecs (%char-to-flat-index #\h #\8))
+                                +xxd+))
+                         ((string= move "e8c8")
+                          (setf (shape hud-ecs (%char-to-flat-index #\d #\8))
+                                +rdd+
+                                (shape hud-ecs (%char-to-flat-index #\a #\8))
+                                +xxl+)))))))
+      (error "Not a supported move to parse."))
+  move)
+
+(declaim (inline %send-update-board-message))
+(defun %send-update-board-message (pipe pipe-lock best-moves)
+  (let ((move (vector-pop best-moves)))
+    (with-lock-held (pipe-lock)
+      (write-line move pipe))
+    (vector-push move best-moves)))
+
 ;;; todo: Record moves in algebraic notation
 ;;;
 ;;; todo: Handle the end of the game instead of just going a certain
 ;;; number of turns
-(defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10) (turns 3) unicode debug-stream (width 1280) (height 720))
-  (let* ((settings (make-settings :title "CL Chess"
+(defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10) (turns 3) debug-stream (width 1280) (height 720))
+  (let* ((pipe-lock (make-lock))
+         (pipe (make-instance 'character-pipe))
+         (settings (make-settings :title "CL Chess"
                                   :width width
                                   :height height
                                   :fullscreen nil
@@ -544,8 +652,12 @@
                               :key-bindings (key-bindings)
                               :init-function #'make-chess-graphics
                               :script-function (lambda (&key ecs hud-ecs labels time)
-                                                 (declare (ignore ecs hud-ecs labels time))
-                                                 nil)))
+                                                 (declare (ignore ecs labels time))
+                                                 (with-lock-held (pipe-lock)
+                                                   (when (not (empty? pipe))
+                                                     (do ((command (read-line pipe nil :eof) (read-line pipe nil :eof)))
+                                                         ((eql command :eof))
+                                                       (update-visual-board hud-ecs command)))))))
          (process-1 (launch-program engine-name :input :stream :output :stream))
          (process-2 (launch-program engine-name :input :stream :output :stream))
          (engine-name-1 (concatenate 'string engine-name "-1"))
@@ -561,9 +673,6 @@
          (progn
            (chess-engine-initialize engine-name-1 process-1 threads prompt-1 debug-stream)
            (chess-engine-initialize engine-name-2 process-2 threads prompt-2 debug-stream)
-           (terpri)
-           (print-board board unicode)
-           (terpri)
            (dotimes (i turns)
              (setf ponder-move (chess-engine-half-turn process-1 engine-name-1 prompt-1
                                                        process-2 engine-name-2 prompt-2
@@ -571,18 +680,14 @@
                                                        seconds
                                                        debug-stream))
              (update-board board best-moves)
-             (terpri)
-             (print-board board unicode)
-             (terpri)
+             (%send-update-board-message pipe pipe-lock best-moves)
              (setf ponder-move (chess-engine-half-turn process-2 engine-name-2 prompt-2
                                                        process-1 engine-name-1 prompt-1
                                                        best-moves ponder-move
                                                        seconds
                                                        debug-stream))
              (update-board board best-moves)
-             (terpri)
-             (print-board board unicode)
-             (terpri))
+             (%send-update-board-message pipe pipe-lock best-moves))
            (values window best-moves))
       ;; Quits the chess engine.
       (quit-chess-engine process-1 prompt-1 debug-stream)
