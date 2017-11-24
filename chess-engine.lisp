@@ -652,6 +652,42 @@
                  :init-function #'make-chess-graphics
                  :script-function script-function)))
 
+(defun chess-game-replay (moves &key
+                                  (seconds 2)
+                                  debug-stream
+                                  (width 1280)
+                                  (height 720))
+  (check-type moves sequence)
+  (check-type debug-stream (or boolean stream))
+  (check-type width (integer 200))
+  (check-type height (integer 200))
+  (let* ((pipe-lock (make-lock))
+         (pipe (make-instance 'character-pipe))
+         (script-function (lambda (&key ecs hud-ecs labels time)
+                            (declare (ignore ecs labels time))
+                            (with-lock-held (pipe-lock)
+                              (when (not (empty? pipe))
+                                (do ((command (read-line pipe nil :eof) (read-line pipe nil :eof)))
+                                    ((eql command :eof))
+                                  (update-visual-board hud-ecs command))))))
+         (window (make-chess-gui width height script-function))
+         (board (make-board))
+         (internal-wait-time (* seconds internal-time-units-per-second)))
+    (values window
+            moves
+            (map nil
+                 (lambda (move)
+                   (let ((start-time (get-internal-real-time)))
+                     (update-board board move)
+                     (with-lock-held (pipe-lock)
+                       (write-line move pipe))
+                     (let* ((end-time (get-internal-real-time))
+                            (time-interval (- end-time start-time)))
+                       (when (< time-interval internal-wait-time)
+                         (sleep (/ (- internal-wait-time time-interval)
+                                   internal-time-units-per-second))))))
+                 moves))))
+
 ;;; todo: Record moves in algebraic notation
 ;;;
 ;;; todo: Handle draws and other edge cases.
