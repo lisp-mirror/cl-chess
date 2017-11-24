@@ -321,33 +321,64 @@
 ;;; Visuals
 
 (defun square-model ()
-  (list (cons :square (make-square :program :hud
-                                   :texture :chess-king-light-light
-                                   :color-r 1f0
-                                   :color-g 1f0
-                                   :color-b 1f0))))
+  (list (cons :square-0 (make-square :program :hud
+                                     :texture :chess-king-light-light
+                                     :color-r 1f0
+                                     :color-g 1f0
+                                     :color-b 1f0))
+        (cons :square-1 (make-square :program :hud
+                                     :texture :chess-king-dark-light
+                                     :color-r 1f0
+                                     :color-g 1f0
+                                     :color-b 1f0))))
+
+(defun load-png (name)
+  (load-file (merge-pathnames* (make-pathname* :directory `(:relative "png")
+                                               :name name
+                                               :type "png")
+                               (main-data-directory "cl-chess"))
+             :flip-y t
+             :flatten t))
 
 (defun textures ()
-  (let ((png (load-file (merge-pathnames* (make-pathname* :directory `(:relative "png") :name "kll" :type "png")
-                                          (main-data-directory "cl-chess"))
-                        :flip-y t
-                        :flatten t)))
+  (let ((kll (load-png "kll"))
+        (kdl (load-png "kld")))
     (list (make-instance 'texture
                          :name :chess-king-light-light
-                         :height (height png)
-                         :width (width png)
+                         :height (height kll)
+                         :width (width kll)
                          :texel-size 3
-                         :data (data png)))))
+                         :data (data kll))
+          (make-instance 'texture
+                         :name :chess-king-dark-light
+                         :height (height kdl)
+                         :width (width kdl)
+                         :texel-size 3
+                         :data (data kdl)))))
 
-(defun make-chess-graphics (&key ecs hud-ecs labels mesh-keys width height)
-  (declare (ignore labels))
+(declaim (inline %make-square-entity))
+(defun %make-square-entity (hud-ecs mesh-keys location scale light?)
   (make-basic-entity hud-ecs
                      mesh-keys
-                     :square
-                     :location (vec (/ width 2.5f0) (/ height 2.5f0) 0f0)
-                     :scale (vec (/ height 20f0) (/ height 20f0) 1f0)
-                     :falling? nil)
-  (make-fps-camera-entity ecs :location (vec 0f0 0f0 0f0)))
+                     (if light? :square-0 :square-1)
+                     :location location
+                     :scale scale
+                     :falling? nil))
+
+(defun make-chess-graphics (&key ecs hud-ecs labels mesh-keys width height)
+  (declare (ignore labels width))
+  (let* ((scale (/ height 20f0))
+         (square-scale (vec scale scale 1f0)))
+    (dotimes (j 8)
+      (let ((y (* (- (coerce j 'single-float) 3.5f0) scale)))
+        (dotimes (i 8)
+          (let ((x (* (- (coerce i 'single-float) 3.5f0) scale)))
+            (%make-square-entity hud-ecs mesh-keys (vec x y 0f0) square-scale
+                                 (if (or (and (zerop (mod j 2)) (not (zerop (mod i 2))))
+                                         (and (not (zerop (mod j 2))) (zerop (mod i 2))))
+                                     t
+                                     nil))))))
+    (make-fps-camera-entity ecs :location (vec 0f0 0f0 0f0))))
 
 ;;; todo: Record moves in algebraic notation
 ;;;
