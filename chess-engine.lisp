@@ -639,7 +639,16 @@
 ;;; Note: Having an infinite number of turns (i.e. turns -1 or
 ;;; something similar) is not recommended until the edge cases are
 ;;; handled, e.g. draws.
-(defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10) (turns 3) debug-stream debug-info (width 1280) (height 720))
+(defun chess-engine (&key
+                       (engine-name-1 "stockfish")
+                       (engine-name-2 "stockfish")
+                       (threads 8)
+                       (seconds 10)
+                       (turns 3)
+                       debug-stream
+                       debug-info
+                       (width 1280)
+                       (height 720))
   (let* ((pipe-lock (make-lock))
          (pipe (make-instance 'character-pipe))
          (script-function (lambda (&key ecs hud-ecs labels time)
@@ -665,10 +674,11 @@
                               :key-bindings (key-bindings)
                               :init-function #'make-chess-graphics
                               :script-function script-function))
-         (process-1 (launch-program engine-name :input :stream :output :stream))
-         (process-2 (launch-program engine-name :input :stream :output :stream))
-         (engine-name-1 (concatenate 'string engine-name "-1"))
-         (engine-name-2 (concatenate 'string engine-name "-2"))
+         (process-1 (launch-program engine-name-1 :input :stream :output :stream))
+         (process-2 (launch-program engine-name-2 :input :stream :output :stream))
+         (mirror-match? (string= engine-name-1 engine-name-2))
+         (engine-name-1 (if mirror-match? (concatenate 'string engine-name-1 "-1") engine-name-1))
+         (engine-name-2 (if mirror-match? (concatenate 'string engine-name-2 "-2") engine-name-2))
          (prompt-1 "1 > ")
          (prompt-2 "2 > ")
          (board (make-board))
