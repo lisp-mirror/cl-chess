@@ -642,6 +642,13 @@
 (defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10) (turns 3) debug-stream debug-info (width 1280) (height 720))
   (let* ((pipe-lock (make-lock))
          (pipe (make-instance 'character-pipe))
+         (script-function (lambda (&key ecs hud-ecs labels time)
+                            (declare (ignore ecs labels time))
+                            (with-lock-held (pipe-lock)
+                              (when (not (empty? pipe))
+                                (do ((command (read-line pipe nil :eof) (read-line pipe nil :eof)))
+                                    ((eql command :eof))
+                                  (update-visual-board hud-ecs command))))))
          (settings (make-settings :title "CL Chess"
                                   :width width
                                   :height height
@@ -657,13 +664,7 @@
                               :key-actions (key-actions)
                               :key-bindings (key-bindings)
                               :init-function #'make-chess-graphics
-                              :script-function (lambda (&key ecs hud-ecs labels time)
-                                                 (declare (ignore ecs labels time))
-                                                 (with-lock-held (pipe-lock)
-                                                   (when (not (empty? pipe))
-                                                     (do ((command (read-line pipe nil :eof) (read-line pipe nil :eof)))
-                                                         ((eql command :eof))
-                                                       (update-visual-board hud-ecs command)))))))
+                              :script-function script-function))
          (process-1 (launch-program engine-name :input :stream :output :stream))
          (process-2 (launch-program engine-name :input :stream :output :stream))
          (engine-name-1 (concatenate 'string engine-name "-1"))
@@ -693,7 +694,6 @@
                         (checkmate? nil))
                        ((or (= i turns) checkmate?)
                         (if checkmate? "Checkmate!" "Out of turns!"))
-                     (format t "~A~%" move)
                      (setf (values move ponder-move checkmate?)
                            (chess-engine-half-turn process-1 engine-name-1 prompt-1
                                                    process-2 engine-name-2 prompt-2
