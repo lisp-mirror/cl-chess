@@ -260,29 +260,44 @@
         (chess-engine-output (process-info-output chess-engine-process)))
     (run-command (format nil "go movetime ~D000" seconds) chess-engine-input prompt debug-stream)
     (do ((line (read-line chess-engine-output nil :eof)
-               (read-line chess-engine-output nil :eof)))
+               (read-line chess-engine-output nil :eof))
+         (checkmate? nil))
         ((or (eql :eof line)
+             checkmate?
              (and (>= (length line) 8) (string= "bestmove" (subseq line 0 8))))
-         (when debug-stream
-           (format debug-stream "~A : ~A~%" engine-name line))
-         (with-input-from-string (command line :start 9)
-           ;; Reads the actual best move
-           (let ((ponder? t))
-             (vector-push (with-output-to-string (out-string)
-                            (do ((char (read-char command nil :eof) (read-char command nil :eof)))
-                                ((or (eql char :eof) (char= char #\Space))
-                                 (when (eql char :eof) (setf ponder? nil)))
-                              (write-char char out-string)))
-                          best-moves)
-             ;; This assumes the next word is ponder if it exists.
-             (if ponder?
-                 (progn
-                   ;; Assumes the rest of the line is the ponder command
-                   (do ((char (read-char command) (read-char command)))
-                       ((char= char #\Space)))
-                   (with-output-to-string (out-string) (read-line command)))
-                 nil))))
+         (if checkmate?
+             (vector-push "CHECKMATE" best-moves)
+             (progn
+               (when debug-stream
+                 (format debug-stream "~A : ~A~%" engine-name line))
+               (with-input-from-string (command line :start 9)
+                 ;; Reads the actual best move
+                 (let ((ponder? t))
+                   (vector-push (with-output-to-string (out-string)
+                                  (do ((char (read-char command nil :eof) (read-char command nil :eof)))
+                                      ((or (eql char :eof) (char= char #\Space))
+                                       (when (eql char :eof) (setf ponder? nil)))
+                                    (write-char char out-string)))
+                                best-moves)
+                   ;; This assumes the next word is ponder if it exists.
+                   (if ponder?
+                       (progn
+                         ;; Assumes the rest of the line is the ponder command
+                         (do ((char (read-char command) (read-char command)))
+                             ((char= char #\Space)))
+                         (with-output-to-string (out-string) (read-line command)))
+                       nil))))))
       (let ((info? (and (>= (length line) 4) (string= "info" (subseq line 0 4)))))
+        (when info?
+          (let ((mate? (search "mate " line)))
+            (when mate?
+              (let* ((number-start (+ 5 mate?))
+                     (number-end (position #\Space line :start number-start))
+                     (mate-number (if number-end
+                                      (parse-integer line :start number-start :end number-end)
+                                      (parse-integer line :start number-start))))
+                (when (<= mate-number 0)
+                  (setf checkmate? t))))))
         (unless (or (not debug-stream)
                     (and (not debug-info) info?))
           (format debug-stream "~A : ~A~%" engine-name line))))))
@@ -330,8 +345,8 @@
     (let ((move (vector-pop best-moves)))
       (vector-push move best-moves)
       (when ponder-move
-        (chess-engine-ponder-end name-pondering process-pondering (string= move ponder-move) prompt-pondering debug-stream debug-info)))
-    new-ponder-move))
+        (chess-engine-ponder-end name-pondering process-pondering (string= move ponder-move) prompt-pondering debug-stream debug-info))
+      (values new-ponder-move (string= move "CHECKMATE")))))
 
 ;;; Visuals
 
@@ -636,8 +651,11 @@
 
 ;;; todo: Record moves in algebraic notation
 ;;;
-;;; todo: Handle the end of the game instead of just going a certain
-;;; number of turns
+;;; todo: Handle draws and other edge cases.
+;;;
+;;; Note: Having an infinite number of turns (i.e. turns -1 or
+;;; something similar) is not recommended until the edge cases are
+;;; handled, e.g. draws.
 (defun chess-engine (&key (engine-name "stockfish") (threads 8) (seconds 10) (turns 3) debug-stream debug-info (width 1280) (height 720))
   (let* ((pipe-lock (make-lock))
          (pipe (make-instance 'character-pipe))
@@ -678,24 +696,32 @@
          (progn
            (chess-engine-initialize engine-name-1 process-1 threads prompt-1 debug-stream)
            (chess-engine-initialize engine-name-2 process-2 threads prompt-2 debug-stream)
-           (dotimes (i turns)
-             (setf ponder-move (chess-engine-half-turn process-1 engine-name-1 prompt-1
-                                                       process-2 engine-name-2 prompt-2
-                                                       best-moves ponder-move
-                                                       seconds
-                                                       debug-stream
-                                                       debug-info))
-             (update-board board best-moves)
-             (%send-update-board-message pipe pipe-lock best-moves)
-             (setf ponder-move (chess-engine-half-turn process-2 engine-name-2 prompt-2
-                                                       process-1 engine-name-1 prompt-1
-                                                       best-moves ponder-move
-                                                       seconds
-                                                       debug-stream
-                                                       debug-info))
-             (update-board board best-moves)
-             (%send-update-board-message pipe pipe-lock best-moves))
-           (values window best-moves))
+           (values window
+                   best-moves
+                   (do ((i 0 (1+ i))
+                        (checkmate? nil))
+                       ((or (= i turns) checkmate?)
+                        (if checkmate? "Checkmate!" "Out of turns!"))
+                     (setf (values ponder-move checkmate?)
+                           (chess-engine-half-turn process-1 engine-name-1 prompt-1
+                                                   process-2 engine-name-2 prompt-2
+                                                   best-moves ponder-move
+                                                   seconds
+                                                   debug-stream
+                                                   debug-info))
+                     (unless checkmate?
+                       (update-board board best-moves)
+                       (%send-update-board-message pipe pipe-lock best-moves)
+                       (setf (values ponder-move checkmate?)
+                             (chess-engine-half-turn process-2 engine-name-2 prompt-2
+                                                     process-1 engine-name-1 prompt-1
+                                                     best-moves ponder-move
+                                                     seconds
+                                                     debug-stream
+                                                     debug-info))
+                       (unless checkmate?
+                         (update-board board best-moves)
+                         (%send-update-board-message pipe pipe-lock best-moves))))))
       ;; Quits the chess engine.
       (quit-chess-engine process-1 prompt-1 debug-stream)
       (chess-engine-leftover-output engine-name-1 process-1 debug-stream)
