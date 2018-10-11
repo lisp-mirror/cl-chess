@@ -38,8 +38,7 @@
 (deftype board ()
   '(simple-array character (8 8)))
 
-(defun print-board (board &optional unicode (stream t))
-  (declare (board board))
+(define-function print-board ((board board) &optional unicode (stream t))
   (dotimes (i 8)
     (write-char #\Space stream)
     (dotimes (j 8)
@@ -71,8 +70,7 @@
     (terpri stream)))
 
 ;;; note: This is just the board part of the FEN representation
-(defun print-fen-board (board &optional (stream t))
-  (declare (board board))
+(define-function print-fen-board ((board board) &optional (stream t))
   (dotimes (i 8)
     (let ((counter 0))
       (declare ((integer 0 8) counter))
@@ -136,8 +134,7 @@
         new-value))
 
 ;;; todo: Verify that the castling is legal
-(defun update-board (board move)
-  (declare (board board))
+(define-function update-board ((board board) move)
   (if (= (length move) 4)
       (progn (setf (%chess-board-ref board (char move 2) (char move 3))
                    (%chess-board-ref board (char move 0) (char move 1))
@@ -560,9 +557,8 @@
     (setf mesh-id new-shape)))
 
 ;;; todo: Verify that the castling is legal
-(defun update-visual-board (hud-ecs move)
-  (declare (entity-component-system hud-ecs)
-           (optimize (speed 3)))
+(define-function update-visual-board ((hud-ecs entity-component-system) move)
+  (declare (optimize (speed 3)))
   (check-type move (unsigned-byte 16))
   (let* ((start-x (ldb (byte 3 0) move))
          (start-y (ldb (byte 3 3) move))
@@ -603,8 +599,7 @@
                         +xxl+)))))
   move)
 
-(declaim (inline make-chess-gui))
-(defun make-chess-gui (width height script-function)
+(define-function (make-chess-gui :inline t) (width height script-function)
   (let ((settings (make-settings :title "CL Chess"
                                  :width width
                                  :height height
@@ -623,14 +618,10 @@
                :init-function #'make-chess-graphics
                :script-function script-function)))
 
-(declaim (inline split-ub16))
-(defun split-ub16 (x)
-  (declare ((unsigned-byte 16) x))
+(define-function (split-ub16 :inline t) ((x uint16))
   (values (ldb (byte 8 0) x) (ldb (byte 8 8) x)))
 
-(declaim (inline join-ub16))
-(defun join-ub16 (x y)
-  (declare ((unsigned-byte 8) x y))
+(define-function (join-ub16 :inline t) ((x uint8) (y uint8))
   (+ x (ash y 8)))
 
 (defun command-chars-to-command-ub16 (char-0 char-1 char-2 char-3)
