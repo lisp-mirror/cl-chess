@@ -1,7 +1,7 @@
 ;;; todo: bit board
 
 (defpackage #:chess-engine
-  (:use #:cl)
+  (:use #:cl #:zombie-raptor)
   (:import-from #:bordeaux-threads
                 #:make-lock
                 #:with-lock-held)
@@ -17,27 +17,6 @@
                 #:process-info-input
                 #:process-info-output
                 #:wait-process)
-  (:import-from #:zombie-raptor
-                #:byte-pipe
-                #:character-pipe
-                #:define-shader
-                #:define-shader-data
-                #:empty?
-                #:entity-component-system
-                #:flat-index
-                #:key-actions
-                #:key-bindings
-                #:main-data-directory
-                #:make-basic-entity
-                #:make-fps-camera-entity
-                #:make-settings
-                #:make-square
-                #:make-window
-                #:model
-                #:mouse-actions
-                #:shape
-                #:texture
-                #:vec)
   (:export #:chess-engine))
 
 (in-package #:chess-engine)
@@ -433,16 +412,17 @@
         (names #("xxd" "xxl" "bdd" "bdl" "bld" "bll" "kdd" "kdl" "kld" "kll"
                  "ndd" "ndl" "nld" "nll" "pdd" "pdl" "pld" "pll" "qdd" "qdl"
                  "qld" "qll" "rdd" "rdl" "rld" "rll")))
-    (loop for i from 0 below 26
-       collect
-         (cons (intern (concatenate 'string
-                                    #.(symbol-name '#:square-)
-                                    ;; (format nil "~D" i)
-                                    (if (eql case :upcase)
-                                        (string-upcase (elt names i))
-                                        (elt names i)))
-                       :keyword)
-               (%make-square i)))))
+    (make-instance 'models
+                   :models (loop :for i :from 0 :below 26
+                                 :collect
+                                 (cons (intern (concatenate 'string
+                                                            #.(symbol-name '#:square-)
+                                                            ;; (format nil "~D" i)
+                                                            (if (eql case :upcase)
+                                                                (string-upcase (elt names i))
+                                                                (elt names i)))
+                                               :keyword)
+                                       (%make-square i))))))
 
 (defun load-png (name)
   (load-file (merge-pathnames* (make-pathname* :directory `(:relative "png")
@@ -515,38 +495,15 @@
                                      :square-xxd))))))
     (make-fps-camera-entity ecs :location (vec 0f0 0f0 0f0)))
   ;; Sets the pieces
-  (psetf (shape hud-ecs 00) +rld+
-         (shape hud-ecs 01) +nll+
-         (shape hud-ecs 02) +bld+
-         (shape hud-ecs 03) +qll+
-         (shape hud-ecs 04) +kld+
-         (shape hud-ecs 05) +bll+
-         (shape hud-ecs 06) +nld+
-         (shape hud-ecs 07) +rll+
-         (shape hud-ecs 08) +pll+
-         (shape hud-ecs 09) +pld+
-         (shape hud-ecs 10) +pll+
-         (shape hud-ecs 11) +pld+
-         (shape hud-ecs 12) +pll+
-         (shape hud-ecs 13) +pld+
-         (shape hud-ecs 14) +pll+
-         (shape hud-ecs 15) +pld+
-         (shape hud-ecs 63) +rdd+
-         (shape hud-ecs 62) +ndl+
-         (shape hud-ecs 61) +bdd+
-         (shape hud-ecs 60) +kdl+
-         (shape hud-ecs 59) +qdd+
-         (shape hud-ecs 58) +bdl+
-         (shape hud-ecs 57) +ndd+
-         (shape hud-ecs 56) +rdl+
-         (shape hud-ecs 55) +pdl+
-         (shape hud-ecs 54) +pdd+
-         (shape hud-ecs 53) +pdl+
-         (shape hud-ecs 52) +pdd+
-         (shape hud-ecs 51) +pdl+
-         (shape hud-ecs 50) +pdd+
-         (shape hud-ecs 49) +pdl+
-         (shape hud-ecs 48) +pdd+))
+  (loop :for entity-id :from 0 :to 48
+        :for shape :in '(+rld+ +nll+ +bld+ +qll+ +kld+ +bll+ +nld+ +rll+ +pll+
+                         +pld+ +pll+ +pld+ +pll+ +pld+ +pll+ +pld+ +rdd+ +ndl+
+                         +bdd+ +kdl+ +qdd+ +bdl+ +ndd+ +rdl+ +pdl+ +pdd+ +pdl+
+                         +pdd+ +pdl+ +pdd+ +pdl+ +pdd+)
+        :do
+           (with-selection hud-ecs (id :id entity-id :changed? t)
+               ((geometry (mesh-id mesh-id)))
+             (setf mesh-id shape))))
 
 (declaim (inline %char-to-coords))
 (defun %char-to-coords (char-0 char-1)
@@ -591,6 +548,16 @@
                 (#\6 5)
                 (#\7 6)
                 (#\8 7))))
+
+(define-function (shape :inline t) (ecs entity-id)
+  (with-selection ecs (id :id entity-id)
+      ((geometry (mesh-id mesh-id)))
+    mesh-id))
+
+(define-function ((setf shape) :inline t) (new-shape ecs entity-id)
+  (with-selection ecs (id :id entity-id :changed? t)
+      ((geometry (mesh-id mesh-id)))
+    (setf mesh-id new-shape)))
 
 ;;; todo: Verify that the castling is legal
 (defun update-visual-board (hud-ecs move)
@@ -644,16 +611,17 @@
                                  :fullscreen nil
                                  :app-name "cl-chess"
                                  :msaa 4
-                                 :debug nil)))
-    (make-window :settings settings
-                 :shader-data (shader-data)
-                 :textures (textures)
-                 :models (square-model)
-                 :mouse-actions (mouse-actions)
-                 :key-actions (key-actions)
-                 :key-bindings (key-bindings)
-                 :init-function #'make-chess-graphics
-                 :script-function script-function)))
+                                 :debug nil))
+        (controls (make-controls :key-actions (key-actions)
+                                 :key-bindings (key-bindings)
+                                 :mouse-actions (mouse-actions))))
+    (make-game :settings settings
+               :shader-data (shader-data)
+               :textures (textures)
+               :models (square-model)
+               :controls controls
+               :init-function #'make-chess-graphics
+               :script-function script-function)))
 
 (declaim (inline split-ub16))
 (defun split-ub16 (x)
