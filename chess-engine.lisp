@@ -690,25 +690,17 @@
 ;;;
 ;;; Note: Having an infinite number of turns (i.e. -1 turns) is not
 ;;; recommended until the edge cases are handled, e.g. draws.
-(defun chess-engine (&key
-                       (engine-name-1 "stockfish")
-                       (engine-name-2 "stockfish")
-                       (threads 8)
-                       (seconds 10)
-                       (turns 3)
-                       debug-stream
-                       debug-info
-                       (width 1280)
-                       (height 720))
-  (check-type engine-name-1 string)
-  (check-type engine-name-2 string)
-  (check-type threads (integer 3 8192))
-  (check-type seconds (integer 1))
-  (check-type turns (integer -1 200))
-  (check-type debug-stream (or boolean stream))
-  (check-type debug-info boolean)
-  (check-type width (integer 200))
-  (check-type height (integer 200))
+(define-function (chess-engine :check-type t)
+    (&key
+     (engine-name-1 "stockfish" string)
+     (engine-name-2 "stockfish" string)
+     (threads 8 (integer 3 8192))
+     (seconds 10 (integer 1))
+     (turns 3 (integer -1 200))
+     (debug-stream nil (or boolean stream))
+     (debug-info nil boolean)
+     (width 1280 (integer 200))
+     (height 720 (integer 200)))
   (let* ((pipe-lock (make-lock))
          (pipe (make-instance 'byte-pipe))
          (script-function (lambda (&key ecs hud-ecs labels time)
