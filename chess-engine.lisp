@@ -90,8 +90,7 @@
       (format stream "/")))
   (terpri stream))
 
-(declaim (inline %chess-board-ref))
-(defun %chess-board-ref (board char-0 char-1)
+(define-function (%chess-board-ref :inline t) (board char-0 char-1)
   (aref board
         (ecase char-1
           (#\1 (- 8 1))
@@ -112,7 +111,7 @@
           (#\g 6)
           (#\h 7))))
 
-(defun (setf %chess-board-ref) (new-value board char-0 char-1)
+(define-function ((setf %chess-board-ref) :inline t) (new-value board char-0 char-1)
   (setf (aref board
               (ecase char-1
                 (#\1 (- 8 1))
@@ -381,17 +380,15 @@
   frag
   vert)
 
-(declaim (inline %make-square))
-(defun %make-square (texture-layer)
-  (let* ((*read-default-float-format* 'single-float)
-         (texture-layer (coerce texture-layer 'single-float))
-         (vertex-data '(-0.5 -0.5 0.0 0.0 0.0 1.0 0.5 0.5 0.5 0.0 0.0 0.0
-                         0.5 -0.5 0.0 0.0 0.0 1.0 0.5 0.5 0.5 1.0 0.0 0.0
-                         0.5  0.5 0.0 0.0 0.0 1.0 0.5 0.5 0.5 1.0 1.0 0.0
-                        -0.5  0.5 0.0 0.0 0.0 1.0 0.5 0.5 0.5 0.0 1.0 0.0))
-         (vertex-array (make-array 48
-                                   :element-type 'single-float
-                                   :initial-contents vertex-data)))
+(define-function (%make-square :inline t) (texture-layer)
+  (let* ((texture-layer (coerce texture-layer 'single-float))
+        (vertex-data '(-0.5f0 -0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.5f0 0.5f0 0.5f0 0.0f0 0.0f0 0.0f0
+                        0.5f0 -0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.5f0 0.5f0 0.5f0 1.0f0 0.0f0 0.0f0
+                        0.5f0  0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.5f0 0.5f0 0.5f0 1.0f0 1.0f0 0.0f0
+                       -0.5f0  0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.5f0 0.5f0 0.5f0 0.0f0 1.0f0 0.0f0))
+        (vertex-array (make-array 48
+                                  :element-type 'single-float
+                                  :initial-contents vertex-data)))
     (setf (aref vertex-array 11) texture-layer
           (aref vertex-array 23) texture-layer
           (aref vertex-array 35) texture-layer
@@ -464,8 +461,7 @@
                          :texel-size 3
                          :data chess-texture))))
 
-(declaim (inline %make-square-entity))
-(defun %make-square-entity (hud-ecs mesh-keys location scale texture-layer)
+(define-function (%make-square-entity :inline t) (hud-ecs mesh-keys location scale texture-layer)
   (make-basic-entity hud-ecs
                      mesh-keys
                      texture-layer
@@ -473,8 +469,7 @@
                      :scale scale
                      :falling? nil))
 
-(declaim (inline %light?))
-(defun %light? (x y)
+(define-function (%light? :inline t) (x y)
   (or (and (zerop (mod y 2)) (not (zerop (mod x 2))))
       (and (not (zerop (mod y 2))) (zerop (mod x 2)))))
 
@@ -520,8 +515,7 @@
                ((geometry (mesh-id mesh-id)))
              (setf mesh-id shape))))
 
-(declaim (inline %char-to-coords))
-(defun %char-to-coords (char-0 char-1)
+(define-function (%char-to-coords :inline t) (char-0 char-1)
   (values (ecase char-0
             (#\a 0)
             (#\b 1)
@@ -541,8 +535,7 @@
             (#\7 6)
             (#\8 7))))
 
-(declaim (inline %char-to-flat-index))
-(defun %char-to-flat-index (char-0 char-1)
+(define-function (%char-to-flat-index :inline t) (char-0 char-1)
   (flat-index 1
               8
               (ecase char-0
