@@ -17,7 +17,8 @@
                 #:process-info-input
                 #:process-info-output
                 #:wait-process)
-  (:export #:chess-engine))
+  (:export #:chess-engine
+           #:chess-game-replay))
 
 (in-package #:chess-engine)
 
@@ -492,11 +493,28 @@
                                      :square-xxd))))))
     (make-fps-camera-entity ecs :location (vec 0f0 0f0 0f0)))
   ;; Sets the pieces
-  (loop :for entity-id :from 0 :to 48
-        :for shape :in '(+rld+ +nll+ +bld+ +qll+ +kld+ +bll+ +nld+ +rll+ +pll+
-                         +pld+ +pll+ +pld+ +pll+ +pld+ +pll+ +pld+ +rdd+ +ndl+
-                         +bdd+ +kdl+ +qdd+ +bdl+ +ndd+ +rdl+ +pdl+ +pdd+ +pdl+
-                         +pdd+ +pdl+ +pdd+ +pdl+ +pdd+)
+  (loop :for entity-id :across '#.(make-array 32
+                                              :element-type 'fixnum
+                                              :initial-contents (list 00 01 02 03 04
+                                                                      05 06 07 08 09
+                                                                      10 11 12 13 14
+                                                                      15 63 62 61 60
+                                                                      59 58 57 56 55
+                                                                      54 53 52 51 50
+                                                                      49 48))
+        :for shape :across '#.(make-array 32
+                                          :element-type 'fixnum
+                                          :initial-contents (list +rld+ +nll+ +bld+
+                                                                  +qll+ +kld+ +bll+
+                                                                  +nld+ +rll+ +pll+
+                                                                  +pld+ +pll+ +pld+
+                                                                  +pll+ +pld+ +pll+
+                                                                  +pld+ +rdd+ +ndl+
+                                                                  +bdd+ +kdl+ +qdd+
+                                                                  +bdl+ +ndd+ +rdl+
+                                                                  +pdl+ +pdd+ +pdl+
+                                                                  +pdd+ +pdl+ +pdd+
+                                                                  +pdl+ +pdd+))
         :do
            (with-selection hud-ecs (id :id entity-id :changed? t)
                ((geometry (mesh-id mesh-id)))
@@ -632,19 +650,16 @@
         (%char-to-coords char-2 char-3)
       (+ start-0 (ash start-1 3) (ash end-0 6) (ash end-1 9)))))
 
-(defun chess-game-replay (moves &key
-                                  (seconds 2)
-                                  debug-stream
-                                  (width 1280)
-                                  (height 720))
-  (check-type moves sequence)
-  (check-type debug-stream (or boolean stream))
-  (check-type width (integer 200))
-  (check-type height (integer 200))
+(define-function (chess-game-replay :check-type t)
+    ((moves sequence)
+     &key
+     (seconds 2 (integer 0))
+     (debug-stream nil (or boolean stream))
+     (width 1280 (integer 200))
+     (height 720 (integer 200)))
   (let* ((pipe-lock (make-lock))
          (pipe (make-instance 'byte-pipe))
-         (script-function (lambda (&key ecs hud-ecs labels time)
-                            (declare (ignore ecs labels time))
+         (script-function (lambda (&key hud-ecs &allow-other-keys)
                             (with-lock-held (pipe-lock)
                               (do ((empty? (empty? pipe) (empty? pipe))
                                    (command-0 (read-byte pipe) (read-byte pipe))
@@ -694,8 +709,7 @@
      (height 720 (integer 200)))
   (let* ((pipe-lock (make-lock))
          (pipe (make-instance 'byte-pipe))
-         (script-function (lambda (&key ecs hud-ecs labels time)
-                            (declare (ignore ecs labels time))
+         (script-function (lambda (&key hud-ecs &allow-other-keys)
                             (with-lock-held (pipe-lock)
                               (do ((empty? (empty? pipe) (empty? pipe))
                                    (command-0 (read-byte pipe) (read-byte pipe))
