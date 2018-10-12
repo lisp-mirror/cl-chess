@@ -670,14 +670,7 @@
      (width 1280 (integer 200))
      (height 720 (integer 200)))
   (let* ((moves-lock (make-lock))
-         (moves (make-array 400 :fill-pointer 0))
-         (script-function (let ((current-move 0))
-                            (lambda (&key hud-ecs &allow-other-keys)
-                              (with-lock-held (moves-lock)
-                                (unless (>= current-move (length moves))
-                                  (update-visual-board hud-ecs (aref moves current-move))
-                                  (incf current-move))))))
-         (window (make-chess-gui width height script-function)))
+         (moves (make-array 400 :fill-pointer 0)))
     (make-thread (lambda ()
                    (let* ((board (make-board))
                           (mirror-match? (string= engine-name-1 engine-name-2))
@@ -731,4 +724,11 @@
                                 (unless checkmate?
                                   (update-board board move)))))
                        (quit-chess-engines process-1 process-2 prompt-1 prompt-2 engine-name-1 engine-name-2 debug-stream)))))
-    window))
+    (make-chess-gui width
+                    height
+                    (let ((current-move 0))
+                      (lambda (&key hud-ecs &allow-other-keys)
+                        (with-lock-held (moves-lock)
+                          (unless (>= current-move (length moves))
+                            (update-visual-board hud-ecs (aref moves current-move))
+                            (incf current-move))))))))
