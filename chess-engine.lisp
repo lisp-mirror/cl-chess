@@ -10,6 +10,8 @@
                 #:height
                 #:load-file
                 #:width)
+  (:import-from #:static-vectors
+                #:make-static-vector)
   (:import-from #:uiop
                 #:launch-program
                 #:make-pathname*
@@ -382,13 +384,14 @@
 
 (define-function (%make-square :inline t) (texture-layer &key name)
   (let* ((texture-layer (coerce texture-layer 'single-float))
-        (vertex-data '(-0.5f0 -0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.5f0 0.5f0 0.5f0 0.0f0 0.0f0 0.0f0
+         (vertex-data '(-0.5f0 -0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.5f0 0.5f0 0.5f0 0.0f0 0.0f0 0.0f0
                         0.5f0 -0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.5f0 0.5f0 0.5f0 1.0f0 0.0f0 0.0f0
                         0.5f0  0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.5f0 0.5f0 0.5f0 1.0f0 1.0f0 0.0f0
-                       -0.5f0  0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.5f0 0.5f0 0.5f0 0.0f0 1.0f0 0.0f0))
-        (vertex-array (make-array 48
-                                  :element-type 'single-float
-                                  :initial-contents vertex-data)))
+                        -0.5f0  0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.5f0 0.5f0 0.5f0 0.0f0 1.0f0 0.0f0))
+         (vertex-array (make-static-vector 48
+                                           :element-type 'single-float
+                                           :initial-contents vertex-data)))
+    (declare ((simple-array single-float (48)) vertex-array))
     (setf (aref vertex-array 11) texture-layer
           (aref vertex-array 23) texture-layer
           (aref vertex-array 35) texture-layer
@@ -396,9 +399,9 @@
     (make-instance 'model
                    :name name
                    :vertex-array vertex-array
-                   :element-array (make-array 6
-                                              :element-type 'fixnum
-                                              :initial-contents '(0 1 2 2 3 0))
+                   :element-array (make-static-vector 6
+                                                      :element-type 'fixnum
+                                                      :initial-contents '(0 1 2 2 3 0))
                    :program :default
                    :texture :chess-square
                    :attribute-sizes #(3 3 3))))
