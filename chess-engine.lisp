@@ -380,7 +380,7 @@
   frag
   vert)
 
-(define-function (%make-square :inline t) (texture-layer)
+(define-function (%make-square :inline t) (texture-layer &key name)
   (let* ((texture-layer (coerce texture-layer 'single-float))
         (vertex-data '(-0.5f0 -0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.5f0 0.5f0 0.5f0 0.0f0 0.0f0 0.0f0
                         0.5f0 -0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.5f0 0.5f0 0.5f0 1.0f0 0.0f0 0.0f0
@@ -394,6 +394,7 @@
           (aref vertex-array 35) texture-layer
           (aref vertex-array 47) texture-layer)
     (make-instance 'model
+                   :name name
                    :vertex-array vertex-array
                    :element-array (make-array 6
                                               :element-type 'fixnum
@@ -408,16 +409,15 @@
                  "ndd" "ndl" "nld" "nll" "pdd" "pdl" "pld" "pll" "qdd" "qdl"
                  "qld" "qll" "rdd" "rdl" "rld" "rll")))
     (make-instance 'models
-                   :models (loop :for i :from 0 :below 26
+                   :models (loop :for name :across names
+                                 :for i :of-type fixnum := 0 :then (1+ i)
                                  :collect
-                                 (cons (intern (concatenate 'string
-                                                            #.(symbol-name '#:square-)
-                                                            ;; (format nil "~D" i)
-                                                            (if (eql case :upcase)
-                                                                (string-upcase (elt names i))
-                                                                (elt names i)))
-                                               :keyword)
-                                       (%make-square i))))))
+                                 (%make-square i :name (intern (concatenate 'string
+                                                                            #.(symbol-name '#:square-)
+                                                                            (if (eql case :upcase)
+                                                                                (string-upcase name)
+                                                                                name))
+                                                               :keyword))))))
 
 (defun load-png (name)
   (load-file (merge-pathnames* (make-pathname* :directory `(:relative "png")
