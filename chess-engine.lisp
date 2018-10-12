@@ -694,7 +694,7 @@
                           (let ((i 0)
                                 (board (make-board)))
                             (lambda (&key hud-ecs tick &allow-other-keys)
-                              (when (and (= tick (* i 100 seconds)) (< i (length moves)))
+                              (when (and (= tick (* (1+ i) 100 seconds)) (< i (length moves)))
                                 (let ((move (aref moves i)))
                                   (update-board board move)
                                   (update-visual-board* hud-ecs move)
