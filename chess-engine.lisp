@@ -428,38 +428,31 @@
              :flatten t))
 
 (defun textures ()
-  (let ((chess-texture (make-array (* 26 64 64 3) :element-type '(unsigned-byte 8)))
-        (texture-offset 0))
-    (dotimes (i (* 64 64))
-      (setf (aref chess-texture (+ texture-offset 0 (* i 3))) #xd1
-            (aref chess-texture (+ texture-offset 1 (* i 3))) #x8b
-            (aref chess-texture (+ texture-offset 2 (* i 3))) #x47))
-    (incf texture-offset (* 64 64 3))
-    (dotimes (i (* 64 64))
-      (setf (aref chess-texture (+ texture-offset 0 (* i 3))) #xff
-            (aref chess-texture (+ texture-offset 1 (* i 3))) #xce
-            (aref chess-texture (+ texture-offset 2 (* i 3))) #x9e))
-    (incf texture-offset (* 64 64 3))
-    (dolist (file '("bdd" "bdl" "bld" "bll" "kdd" "kdl" "kld" "kll" "ndd" "ndl"
-                    "nld" "nll" "pdd" "pdl" "pld" "pll" "qdd" "qdl" "qld" "qll"
-                    "rdd" "rdl" "rld" "rll"))
-      (let ((png (load-png file)))
-        (unless (and (= 64 (height png))
-                     (= 64 (width png)))
-          (error "The images must be 64x64"))
-        (let ((texture-data (data png)))
-          (check-type texture-data (simple-array (unsigned-byte 8) (12288)))
-          (dotimes (i (length texture-data))
-            (setf (aref chess-texture (+ texture-offset i)) (aref texture-data i))))
-        (incf texture-offset (* 64 64 3))))
-    (list (make-instance 'texture
-                         :name :chess-square
-                         :height 64
-                         :width 64
-                         :depth 26
-                         :dimension 3
-                         :texel-size 3
-                         :data chess-texture))))
+  (with-texture-data-make-texture (chess-texture :chess-square)
+      (3 3 64 :depth 26)
+    (let ((texture-offset 0))
+      (dotimes (i (* 64 64))
+        (setf (aref chess-texture (+ texture-offset 0 (* i 3))) #xd1
+              (aref chess-texture (+ texture-offset 1 (* i 3))) #x8b
+              (aref chess-texture (+ texture-offset 2 (* i 3))) #x47))
+      (incf texture-offset (* 64 64 3))
+      (dotimes (i (* 64 64))
+        (setf (aref chess-texture (+ texture-offset 0 (* i 3))) #xff
+              (aref chess-texture (+ texture-offset 1 (* i 3))) #xce
+              (aref chess-texture (+ texture-offset 2 (* i 3))) #x9e))
+      (incf texture-offset (* 64 64 3))
+      (dolist (file '("bdd" "bdl" "bld" "bll" "kdd" "kdl" "kld" "kll" "ndd" "ndl"
+                      "nld" "nll" "pdd" "pdl" "pld" "pll" "qdd" "qdl" "qld" "qll"
+                      "rdd" "rdl" "rld" "rll"))
+        (let ((png (load-png file)))
+          (unless (and (= 64 (height png))
+                       (= 64 (width png)))
+            (error "The images must be 64x64"))
+          (let ((texture-data (data png)))
+            (check-type texture-data (simple-array (unsigned-byte 8) (12288)))
+            (dotimes (i (length texture-data))
+              (setf (aref chess-texture (+ texture-offset i)) (aref texture-data i))))
+          (incf texture-offset (* 64 64 3)))))))
 
 (define-function (%make-square-entity :inline t) (hud-ecs mesh-keys location scale texture-layer)
   (make-basic-entity hud-ecs
@@ -623,7 +616,7 @@
                                  :mouse-actions (mouse-actions))))
     (make-game :settings settings
                :shader-data (shader-data)
-               :textures (textures)
+               :textures (list (textures))
                :models (square-model)
                :controls controls
                :init-function #'make-chess-graphics
