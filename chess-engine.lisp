@@ -4,7 +4,8 @@
   (:use #:cl #:zombie-raptor)
   (:import-from #:bordeaux-threads
                 #:make-lock
-                #:with-lock-held)
+                #:with-lock-held
+                #:make-thread)
   (:import-from #:pngload
                 #:data
                 #:height
@@ -564,49 +565,7 @@
     (setf mesh-id new-shape)))
 
 ;;; todo: Verify that the castling is legal
-(define-function update-visual-board ((hud-ecs entity-component-system) move)
-  (declare (optimize (speed 3)))
-  (check-type move (unsigned-byte 16))
-  (let* ((start-x (ldb (byte 3 0) move))
-         (start-y (ldb (byte 3 3) move))
-         (end-x   (ldb (byte 3 6) move))
-         (end-y   (ldb (byte 3 9) move))
-         (start-light? (%light? start-x start-y))
-         (end-light? (%light? end-x end-y))
-         (starting-piece (shape hud-ecs (flat-index 1 8 start-x start-y))))
-    (progn (setf (shape hud-ecs (flat-index 1 8 end-x end-y))
-                 (if (or (and start-light? end-light?)
-                         (not (or start-light? end-light?)))
-                     starting-piece
-                     (if start-light?
-                         (1- starting-piece)
-                         (1+ starting-piece)))
-                 (shape hud-ecs (flat-index 1 8 start-x start-y))
-                 (if start-light? +xxl+ +xxd+))
-           ;; The four castling scenarios in regular chess
-           (cond ((= move #o0604) ; e1g1
-                  (setf (shape hud-ecs (%char-to-flat-index #\f #\1))
-                        +rll+
-                        (shape hud-ecs (%char-to-flat-index #\h #\1))
-                        +xxl+))
-                 ((= move #o0204) ; e1c1
-                  (setf (shape hud-ecs (%char-to-flat-index #\d #\1))
-                        +rll+
-                        (shape hud-ecs (%char-to-flat-index #\a #\1))
-                        +xxd+))
-                 ((= move #o7674) ; e8g8
-                  (setf (shape hud-ecs (%char-to-flat-index #\f #\8))
-                        +rdd+
-                        (shape hud-ecs (%char-to-flat-index #\h #\8))
-                        +xxd+))
-                 ((= move #o7274) ; e8c8
-                  (setf (shape hud-ecs (%char-to-flat-index #\d #\8))
-                        +rdd+
-                        (shape hud-ecs (%char-to-flat-index #\a #\8))
-                        +xxl+)))))
-  move)
-
-(defun update-visual-board* (hud-ecs move)
+(defun update-visual-board (hud-ecs move)
   (declare (entity-component-system hud-ecs))
   (if (= (length move) 4)
       (multiple-value-bind (start-x start-y)
@@ -668,20 +627,6 @@
                :init-function #'make-chess-graphics
                :script-function script-function)))
 
-(define-function (split-ub16 :inline t) ((x uint16))
-  (values (ldb (byte 8 0) x) (ldb (byte 8 8) x)))
-
-(define-function (join-ub16 :inline t) ((x uint8) (y uint8))
-  (+ x (ash y 8)))
-
-(defun command-chars-to-command-ub16 (char-0 char-1 char-2 char-3)
-  (declare (optimize (speed 3)))
-  (multiple-value-bind (start-0 start-1)
-      (%char-to-coords char-0 char-1)
-    (multiple-value-bind (end-0 end-1)
-        (%char-to-coords char-2 char-3)
-      (+ start-0 (ash start-1 3) (ash end-0 6) (ash end-1 9)))))
-
 (define-function (chess-game-replay :check-type t)
     ((moves vector)
      &key
@@ -697,7 +642,7 @@
                               (when (and (= tick (* (1+ i) 100 seconds)) (< i (length moves)))
                                 (let ((move (aref moves i)))
                                   (update-board board move)
-                                  (update-visual-board* hud-ecs move)
+                                  (update-visual-board hud-ecs move)
                                   (incf i))))))
           moves))
 
@@ -724,16 +669,7 @@
      (debug-info nil boolean)
      (width 1280 (integer 200))
      (height 720 (integer 200)))
-  (let* ((pipe-lock (make-lock))
-         (pipe (make-instance 'byte-pipe))
-         (script-function (lambda (&key hud-ecs &allow-other-keys)
-                            (with-lock-held (pipe-lock)
-                              (do ((empty? (empty? pipe) (empty? pipe))
-                                   (command-0 (read-byte pipe) (read-byte pipe))
-                                   (command-1 (read-byte pipe) (read-byte pipe)))
-                                  (empty?)
-                                (update-visual-board hud-ecs (join-ub16 command-0 command-1))))))
-         (window (make-chess-gui width height script-function))
+  (let* ((moves-lock (make-lock))
          (mirror-match? (string= engine-name-1 engine-name-2))
          (process-1 (launch-program engine-name-1 :input :stream :output :stream))
          (process-2 (launch-program engine-name-2 :input :stream :output :stream))
@@ -749,56 +685,50 @@
                               (setf (char position-string i) (char position-string-start i)))
                             position-string))
          (position-string-position 23)
-         (threads (floor (1- threads) 2)))
-    (unwind-protect
-         (progn
-           (chess-engine-initialize engine-name-1 process-1 threads prompt-1 debug-stream)
-           (chess-engine-initialize engine-name-2 process-2 threads prompt-2 debug-stream)
-           (values window
-                   moves
-                   (do ((i 0 (1+ i))
-                        (move nil)
-                        (ponder-move "e2e4")
-                        (position-string-position position-string-position (+ 10 position-string-position))
-                        (checkmate? nil))
-                       ((or (= i turns) checkmate?)
-                        (if checkmate? "Checkmate!" "Out of turns!"))
-                     (setf (values move ponder-move checkmate?)
-                           (chess-engine-half-turn process-1 engine-name-1 prompt-1
-                                                   process-2 engine-name-2 prompt-2
-                                                   position-string position-string-position
-                                                   ponder-move
-                                                   seconds
-                                                   debug-stream
-                                                   debug-info))
-                     (vector-push move moves)
-                     (unless checkmate?
-                       (update-board board move)
-                       (let ((move* (command-chars-to-command-ub16 (char move 0)
-                                                                   (char move 1)
-                                                                   (char move 2)
-                                                                   (char move 3))))
-                         (multiple-value-bind (byte-0 byte-1) (split-ub16 move*)
-                           (with-lock-held (pipe-lock)
-                             (write-byte byte-0 pipe)
-                             (write-byte byte-1 pipe))))
-                       (setf (values move ponder-move checkmate?)
-                             (chess-engine-half-turn process-2 engine-name-2 prompt-2
-                                                     process-1 engine-name-1 prompt-1
-                                                     position-string (+ 5 position-string-position)
-                                                     ponder-move
-                                                     seconds
-                                                     debug-stream
-                                                     debug-info))
-                       (vector-push move moves)
-                       (unless checkmate?
-                         (update-board board move)
-                         (let ((move* (command-chars-to-command-ub16 (char move 0)
-                                                                     (char move 1)
-                                                                     (char move 2)
-                                                                     (char move 3))))
-                           (multiple-value-bind (byte-0 byte-1) (split-ub16 move*)
-                             (with-lock-held (pipe-lock)
-                               (write-byte byte-0 pipe)
-                               (write-byte byte-1 pipe)))))))))
-      (quit-chess-engines process-1 process-2 prompt-1 prompt-2 engine-name-1 engine-name-2 debug-stream))))
+         (threads (floor (1- threads) 2))
+         (script-function (let ((current-move 0))
+                            (lambda (&key hud-ecs &allow-other-keys)
+                              (with-lock-held (moves-lock)
+                                (unless (>= current-move (length moves))
+                                  (update-visual-board hud-ecs (aref moves current-move))
+                                  (incf current-move))))))
+         (window (make-chess-gui width height script-function)))
+    (make-thread (lambda ()
+                   (unwind-protect
+                        (progn
+                          (chess-engine-initialize engine-name-1 process-1 threads prompt-1 debug-stream)
+                          (chess-engine-initialize engine-name-2 process-2 threads prompt-2 debug-stream)
+                          (do ((i 0 (1+ i))
+                               (move nil)
+                               (ponder-move "e2e4")
+                               (position-string-position position-string-position (+ 10 position-string-position))
+                               (checkmate? nil))
+                              ((or (= i turns) checkmate?)
+                               (when debug-stream
+                                 (format debug-stream "DEBUG : Final outcome: ~S~%" (if checkmate? "Checkmate!" "Out of turns!"))))
+                            (setf (values move ponder-move checkmate?)
+                                  (chess-engine-half-turn process-1 engine-name-1 prompt-1
+                                                          process-2 engine-name-2 prompt-2
+                                                          position-string position-string-position
+                                                          ponder-move
+                                                          seconds
+                                                          debug-stream
+                                                          debug-info))
+                            (with-lock-held (moves-lock)
+                              (vector-push move moves))
+                            (unless checkmate?
+                              (update-board board move)
+                              (setf (values move ponder-move checkmate?)
+                                    (chess-engine-half-turn process-2 engine-name-2 prompt-2
+                                                            process-1 engine-name-1 prompt-1
+                                                            position-string (+ 5 position-string-position)
+                                                            ponder-move
+                                                            seconds
+                                                            debug-stream
+                                                            debug-info))
+                              (with-lock-held (moves-lock)
+                                (vector-push move moves))
+                              (unless checkmate?
+                                (update-board board move)))))
+                     (quit-chess-engines process-1 process-2 prompt-1 prompt-2 engine-name-1 engine-name-2 debug-stream))))
+    window))
