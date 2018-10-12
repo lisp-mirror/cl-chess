@@ -701,6 +701,12 @@
                                   (incf i))))))
           moves))
 
+(defun quit-chess-engines (process-1 process-2 prompt-1 prompt-2 engine-name-1 engine-name-2 debug-stream)
+  (quit-chess-engine process-1 prompt-1 debug-stream)
+  (chess-engine-leftover-output engine-name-1 process-1 debug-stream)
+  (quit-chess-engine process-2 prompt-2 debug-stream)
+  (chess-engine-leftover-output engine-name-2 process-2 debug-stream))
+
 ;;; todo: Record moves in algebraic notation
 ;;;
 ;;; todo: Handle draws and other edge cases.
@@ -795,8 +801,4 @@
                              (with-lock-held (pipe-lock)
                                (write-byte byte-0 pipe)
                                (write-byte byte-1 pipe)))))))))
-      ;; Quits the chess engine.
-      (quit-chess-engine process-1 prompt-1 debug-stream)
-      (chess-engine-leftover-output engine-name-1 process-1 debug-stream)
-      (quit-chess-engine process-2 prompt-2 debug-stream)
-      (chess-engine-leftover-output engine-name-2 process-2 debug-stream))))
+      (quit-chess-engines process-1 process-2 prompt-1 prompt-2 engine-name-1 engine-name-2 debug-stream))))
