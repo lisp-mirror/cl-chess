@@ -237,7 +237,7 @@
          (checkmate? nil))
         ((or (eql :eof line)
              checkmate?
-             (and (>= (length line) 8) (string= "bestmove" (subseq line 0 8))))
+             (and (>= (length line) 8) (string= "bestmove" line :start2 0 :end2 8)))
          (if checkmate?
              (values "CHECKMATE" nil)
              (let ((ponder? (position #\Space line :start 9)))
@@ -246,11 +246,11 @@
                (values (subseq line 9 ponder?)
                        (if ponder?
                            (if (and (> (length line) (+ 8 ponder?))
-                                    (string= "ponder " (subseq line (1+ ponder?) (+ 8 ponder?))))
+                                    (string= "ponder " line :start2 (1+ ponder?) :end2 (+ 8 ponder?)))
                                (subseq line (+ 8 ponder?))
                                (error "Invalid syntax in line: ~A" line))
                            nil)))))
-      (let ((info? (and (>= (length line) 4) (string= "info" (subseq line 0 4)))))
+      (let ((info? (and (>= (length line) 4) (string= "info" line :start2 0 :end2 4))))
         (when info?
           (let ((mate? (search "mate " line)))
             (when mate?
@@ -277,10 +277,10 @@
     (do ((line (read-line chess-engine-output nil :eof)
                (read-line chess-engine-output nil :eof)))
         ((or (eql :eof line)
-             (and (>= (length line) 8) (string= "bestmove" (subseq line 0 8))))
+             (and (>= (length line) 8) (string= "bestmove" line :start2 0 :end2 8)))
          (when debug-stream
            (format debug-stream "~A : ~A~%" engine-name line)))
-      (let ((info? (and (>= (length line) 4) (string= "info" (subseq line 0 4)))))
+      (let ((info? (and (>= (length line) 4) (string= "info" line :start2 0 :end2 4))))
         (unless (or (not debug-stream)
                     (and (not debug-info) info?))
           (format debug-stream "~A : ~A~%" engine-name line))))))
