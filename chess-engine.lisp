@@ -357,11 +357,11 @@
      (:in (texcoord :vec3) :location 3)
      (:uniform (view-matrix :mat4))
      (:uniform (model-matrix :mat4))
-     (:uniform (projection-matrix :mat4))
-     (:uniform (normal-matrix :mat4)))
+     (:uniform (projection-matrix :mat4)))
     ((:out (frag-position :vec3) (:vec3 (:* model-matrix (:vec4 position 1f0))))
      (:out (frag-color :vec3) color)
-     (:out (frag-texcoord :vec3) texcoord)
+     (:out (frag-texcoord :vec2) (:st texcoord))
+     (:out (frag-layer :float :flat) (:p texcoord))
      (:out (gl-position :vec4) (:* projection-matrix
                                    view-matrix
                                    model-matrix
@@ -370,24 +370,24 @@
 (define-shader (frag :fragment-shader)
     ((:in (frag-position :vec3))
      (:in (frag-color :vec3))
-     (:in (frag-texcoord :vec3))
-     (:uniform (loaded-texture :sampler-2d-array)))
+     (:in (frag-texcoord :vec2))
+     (:in (frag-layer :float :flat))
+     (:uniform (loaded-texture :sampler-2D-array)))
     ((:out (out-color :vec4) (:vec4 object-color 1f0)))
-  (:define (texture-color :vec3) (:vec3 (:texture loaded-texture frag-texcoord)))
-  ;; (:define (object-color :vec3) (:mix frag-color texture-color 0.5f0))
+  (:define (texture-color :vec3) (:vec3 (:texture loaded-texture (:vec3 frag-texcoord frag-layer))))
   (:define (object-color :vec3) texture-color))
 
-(define-shader-data shader-data
+(define-shader-data shader-data*
     ((default :vertex vert :fragment frag))
   frag
   vert)
 
 (define-function (%make-square :inline t) (texture-layer &key name)
-  (let* ((texture-layer (coerce texture-layer 'single-float))
-         (vertex-data '(-0.5f0 -0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.5f0 0.5f0 0.5f0 0.0f0 0.0f0 0.0f0
-                        0.5f0 -0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.5f0 0.5f0 0.5f0 1.0f0 0.0f0 0.0f0
-                        0.5f0  0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.5f0 0.5f0 0.5f0 1.0f0 1.0f0 0.0f0
-                        -0.5f0  0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.5f0 0.5f0 0.5f0 0.0f0 1.0f0 0.0f0))
+  (let* ((texture-layer (float* texture-layer))
+         (vertex-data '(-0.5f0 -0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.0f0 0.0f0 0.0f0 0.0f0 0.0f0 0.0f0
+                        0.5f0 -0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.0f0 0.0f0 0.0f0 1.0f0 0.0f0 0.0f0
+                        0.5f0 0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.0f0 0.0f0 0.0f0 1.0f0 1.0f0 0.0f0
+                        -0.5f0 0.5f0 0.0f0 0.0f0 0.0f0 1.0f0 0.0f0 0.0f0 0.0f0 0.0f0 1.0f0 0.0f0))
          (vertex-array (make-static-vector 48
                                            :element-type 'single-float
                                            :initial-contents vertex-data)))
@@ -400,7 +400,7 @@
                    :name name
                    :vertex-array vertex-array
                    :element-array (make-static-vector 6
-                                                      :element-type 'fixnum
+                                                      :element-type '(unsigned-byte 16)
                                                       :initial-contents '(0 1 2 2 3 0))
                    :program :default
                    :texture :chess-square
@@ -411,16 +411,15 @@
         (names #("xxd" "xxl" "bdd" "bdl" "bld" "bll" "kdd" "kdl" "kld" "kll"
                  "ndd" "ndl" "nld" "nll" "pdd" "pdl" "pld" "pll" "qdd" "qdl"
                  "qld" "qll" "rdd" "rdl" "rld" "rll")))
-    (make-instance 'models
-                   :models (loop :for name :across names
-                                 :for i :of-type fixnum := 0 :then (1+ i)
-                                 :collect
-                                 (%make-square i :name (intern (concatenate 'string
-                                                                            #.(symbol-name '#:square-)
-                                                                            (if (eql case :upcase)
-                                                                                (string-upcase name)
-                                                                                name))
-                                                               :keyword))))))
+    (loop :for name :across names
+          :for i :of-type fixnum := 0 :then (1+ i)
+          :collect
+          (%make-square i :name (intern (concatenate 'string
+                                                     #.(symbol-name '#:square-)
+                                                     (if (eql case :upcase)
+                                                         (string-upcase name)
+                                                         name))
+                                        :keyword)))))
 
 (defun load-png (name)
   (load-file (merge-pathnames* (make-pathname* :directory `(:relative "png")
@@ -432,7 +431,7 @@
 
 (defun textures ()
   (with-texture-data-make-texture (chess-texture :chess-square)
-      (3 3 64 :depth 26)
+      (3 3 64 :depth 26 :initial-element 255)
     (let ((texture-offset 0))
       (dotimes (i (* 64 64))
         (setf (aref chess-texture (+ texture-offset 0 (* i 3))) #xd1
@@ -475,41 +474,42 @@
   (let* ((scale (min (/ height 10f0) 64f0))
          (square-scale (vec scale scale 1f0)))
     (dotimes (j 8)
-      (let ((y (* (- (coerce j 'single-float) 3.5f0) scale)))
+      (let ((y (* (- (float* j) 3.5f0) scale)))
         (dotimes (i 8)
-          (let ((x (* (- (coerce i 'single-float) 3.5f0) scale)))
+          (let ((x (* (- (float* i) 3.5f0) scale)))
             (%make-square-entity hud-ecs mesh-keys (vec x y 0f0) square-scale
                                  (if (%light? i j)
                                      :square-xxl
                                      :square-xxd))))))
     (make-fps-camera-entity ecs :location (vec 0f0 0f0 0f0)))
   ;; Sets the pieces
-  (loop :for entity-id :across '#.(make-array 32
-                                              :element-type 'fixnum
-                                              :initial-contents (list 00 01 02 03 04
-                                                                      05 06 07 08 09
-                                                                      10 11 12 13 14
-                                                                      15 63 62 61 60
-                                                                      59 58 57 56 55
-                                                                      54 53 52 51 50
-                                                                      49 48))
-        :for shape :across '#.(make-array 32
-                                          :element-type 'fixnum
-                                          :initial-contents (list +rld+ +nll+ +bld+
-                                                                  +qll+ +kld+ +bll+
-                                                                  +nld+ +rll+ +pll+
-                                                                  +pld+ +pll+ +pld+
-                                                                  +pll+ +pld+ +pll+
-                                                                  +pld+ +rdd+ +ndl+
-                                                                  +bdd+ +kdl+ +qdd+
-                                                                  +bdl+ +ndd+ +rdl+
-                                                                  +pdl+ +pdd+ +pdl+
-                                                                  +pdd+ +pdl+ +pdd+
-                                                                  +pdl+ +pdd+))
-        :do
-           (with-selection hud-ecs (id :id entity-id :changed? t)
-               ((geometry (mesh-id mesh-id)))
-             (setf mesh-id shape))))
+  (map nil
+       (lambda (entity-id shape)
+         (with-selection hud-ecs (id :id entity-id :changed? t)
+             ((geometry (mesh-id mesh-id)))
+           (setf mesh-id shape)))
+       '#.(make-array 32
+                      :element-type 'fixnum
+                      :initial-contents (list 00 01 02 03 04
+                                              05 06 07 08 09
+                                              10 11 12 13 14
+                                              15 63 62 61 60
+                                              59 58 57 56 55
+                                              54 53 52 51 50
+                                              49 48))
+       '#.(make-array 32
+                      :element-type 'fixnum
+                      :initial-contents (list +rld+ +nll+ +bld+
+                                              +qll+ +kld+ +bll+
+                                              +nld+ +rll+ +pll+
+                                              +pld+ +pll+ +pld+
+                                              +pll+ +pld+ +pll+
+                                              +pld+ +rdd+ +ndl+
+                                              +bdd+ +kdl+ +qdd+
+                                              +bdl+ +ndd+ +rdl+
+                                              +pdl+ +pdd+ +pdl+
+                                              +pdd+ +pdl+ +pdd+
+                                              +pdl+ +pdd+))))
 
 (define-function (%char-to-coords :inline t) (char-0 char-1)
   (values (ecase char-0
@@ -606,11 +606,54 @@
                         +xxl+)))))
   move)
 
-(define-function (make-chess-gui :inline t) (width height script-function)
+(defun update-visual-board* (hud-ecs move)
+  (declare (entity-component-system hud-ecs))
+  (if (= (length move) 4)
+      (multiple-value-bind (start-x start-y)
+          (%char-to-coords (char move 0) (char move 1))
+        (multiple-value-bind (end-x end-y)
+            (%char-to-coords (char move 2) (char move 3))
+          (let ((start-light? (%light? start-x start-y))
+                (end-light? (%light? end-x end-y))
+                (starting-piece (shape hud-ecs (flat-index 1 8 start-x start-y))))
+            (progn (setf (shape hud-ecs (flat-index 1 8 end-x end-y))
+                         (if (or (and start-light? end-light?)
+                                 (not (or start-light? end-light?)))
+                             starting-piece
+                             (if start-light?
+                                 (1- starting-piece)
+                                 (1+ starting-piece)))
+                         (shape hud-ecs (flat-index 1 8 start-x start-y))
+                         (if start-light? +xxl+ +xxd+))
+                   ;; The four castling scenarios in regular chess
+                   (cond ((string= move "e1g1")
+                          (setf (shape hud-ecs (%char-to-flat-index #\f #\1))
+                                +rll+
+                                (shape hud-ecs (%char-to-flat-index #\h #\1))
+                                +xxl+))
+                         ((string= move "e1c1")
+                          (setf (shape hud-ecs (%char-to-flat-index #\d #\1))
+                                +rll+
+                                (shape hud-ecs (%char-to-flat-index #\a #\1))
+                                +xxd+))
+                         ((string= move "e8g8")
+                          (setf (shape hud-ecs (%char-to-flat-index #\f #\8))
+                                +rdd+
+                                (shape hud-ecs (%char-to-flat-index #\h #\8))
+                                +xxd+))
+                         ((string= move "e8c8")
+                          (setf (shape hud-ecs (%char-to-flat-index #\d #\8))
+                                +rdd+
+                                (shape hud-ecs (%char-to-flat-index #\a #\8))
+                                +xxl+)))))))
+      (error "Not a supported move to parse."))
+  move)
+
+(define-function (make-chess-gui :inline t) (width height script-function &key fullscreen)
   (let ((settings (make-settings :title "CL Chess"
                                  :width width
                                  :height height
-                                 :fullscreen nil
+                                 :fullscreen fullscreen
                                  :app-name "cl-chess"
                                  :msaa 4
                                  :debug nil))
@@ -618,9 +661,9 @@
                                  :key-bindings (key-bindings)
                                  :mouse-actions (mouse-actions))))
     (make-game :settings settings
-               :shader-data (shader-data)
+               :shader-data (shader-data*)
                :textures (list (textures))
-               :models (square-model)
+               :models (make-instance 'models :models (square-model))
                :controls controls
                :init-function #'make-chess-graphics
                :script-function script-function)))
@@ -640,44 +683,23 @@
       (+ start-0 (ash start-1 3) (ash end-0 6) (ash end-1 9)))))
 
 (define-function (chess-game-replay :check-type t)
-    ((moves sequence)
+    ((moves vector)
      &key
      (seconds 2 (integer 0))
      (debug-stream nil (or boolean stream))
      (width 1280 (integer 200))
      (height 720 (integer 200)))
-  (let* ((pipe-lock (make-lock))
-         (pipe (make-instance 'byte-pipe))
-         (script-function (lambda (&key hud-ecs &allow-other-keys)
-                            (with-lock-held (pipe-lock)
-                              (do ((empty? (empty? pipe) (empty? pipe))
-                                   (command-0 (read-byte pipe) (read-byte pipe))
-                                   (command-1 (read-byte pipe) (read-byte pipe)))
-                                  (empty?)
-                                (update-visual-board hud-ecs (join-ub16 command-0 command-1))))))
-         (window (make-chess-gui width height script-function))
-         (board (make-board))
-         (internal-wait-time (* seconds internal-time-units-per-second)))
-    (values window
-            moves
-            (map nil
-                 (lambda (move)
-                   (let ((start-time (get-internal-real-time)))
-                     (update-board board move)
-                     (let ((move* (command-chars-to-command-ub16 (char move 0)
-                                                                 (char move 1)
-                                                                 (char move 2)
-                                                                 (char move 3))))
-                       (multiple-value-bind (byte-0 byte-1) (split-ub16 move*)
-                         (with-lock-held (pipe-lock)
-                           (write-byte byte-0 pipe)
-                           (write-byte byte-1 pipe))))
-                     (let* ((end-time (get-internal-real-time))
-                            (time-interval (- end-time start-time)))
-                       (when (< time-interval internal-wait-time)
-                         (sleep (/ (- internal-wait-time time-interval)
-                                   internal-time-units-per-second))))))
-                 moves))))
+  (values (make-chess-gui width
+                          height
+                          (let ((i 0)
+                                (board (make-board)))
+                            (lambda (&key hud-ecs tick &allow-other-keys)
+                              (when (and (= tick (* i 100 seconds)) (< i (length moves)))
+                                (let ((move (aref moves i)))
+                                  (update-board board move)
+                                  (update-visual-board* hud-ecs move)
+                                  (incf i))))))
+          moves))
 
 ;;; todo: Record moves in algebraic notation
 ;;;
