@@ -653,10 +653,12 @@
   (name    nil :type string       :read-only t)
   (prompt  nil :type string       :read-only t))
 
+(define-accessor-macro with-chess-engine #.(symbol-name '#:chess-engine-))
+
 (define-function quit-chess-engines ((chess-engine-1 chess-engine) (chess-engine-2 chess-engine) debug-stream)
-  (with-accessors* ((process-1 chess-engine-process) (engine-name-1 chess-engine-name) (prompt-1 chess-engine-prompt))
+  (with-chess-engine ((process-1 process) (engine-name-1 name) (prompt-1 prompt))
       chess-engine-1
-    (with-accessors* ((process-2 chess-engine-process) (engine-name-2 chess-engine-name) (prompt-2 chess-engine-prompt))
+    (with-chess-engine ((process-2 process) (engine-name-2 name) (prompt-2 prompt))
         chess-engine-2
       (quit-chess-engine process-1 prompt-1 debug-stream)
       (chess-engine-leftover-output engine-name-1 process-1 debug-stream)
@@ -701,9 +703,9 @@
                           (threads (floor (1- threads) 2)))
                      (unwind-protect
                           (progn
-                            (with-accessors* ((process-1 chess-engine-process) (engine-name-1 chess-engine-name) (prompt-1 chess-engine-prompt))
+                            (with-chess-engine ((process-1 process) (engine-name-1 name) (prompt-1 prompt))
                                 chess-engine-1
-                              (with-accessors* ((process-2 chess-engine-process) (engine-name-2 chess-engine-name) (prompt-2 chess-engine-prompt))
+                              (with-chess-engine ((process-2 process) (engine-name-2 name) (prompt-2 prompt))
                                   chess-engine-2
                                 (chess-engine-initialize engine-name-1 process-1 threads prompt-1 debug-stream)
                                 (chess-engine-initialize engine-name-2 process-2 threads prompt-2 debug-stream)
