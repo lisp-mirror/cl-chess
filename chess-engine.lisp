@@ -692,7 +692,7 @@
                                                              :name (if mirror-match? (concatenate 'string engine-name-1 "-1") engine-name-1)
                                                              :prompt "1 > "))
                           (chess-engine-2 (make-chess-engine :process (launch-program engine-name-2 :input :stream :output :stream)
-                                                             :name (if mirror-match? (concatenate 'string engine-name-1 "-2") engine-name-1)
+                                                             :name (if mirror-match? (concatenate 'string engine-name-2 "-2") engine-name-2)
                                                              :prompt "2 > "))
                           (position-string (let* ((position-string (make-array (+ 23 (* 400 5)) :element-type 'character))
                                                   (position-string-start "position startpos moves"))
