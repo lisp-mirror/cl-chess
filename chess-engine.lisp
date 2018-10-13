@@ -669,7 +669,8 @@
      (debug-info nil boolean)
      (width 1280 (integer 200))
      (height 720 (integer 200)))
-  (let* ((moves-lock (make-lock))
+  (let* ((move-lock (make-lock))
+         (current-move (make-string 4 :initial-element #\Nul))
          (moves (make-array 400 :fill-pointer 0)))
     (make-thread (lambda ()
                    (let* ((board (make-board))
@@ -707,8 +708,9 @@
                                                             seconds
                                                             debug-stream
                                                             debug-info))
-                              (with-lock-held (moves-lock)
-                                (vector-push move moves))
+                              (with-lock-held (move-lock)
+                                (replace current-move move))
+                              (vector-push move moves)
                               (unless checkmate?
                                 (update-board board move)
                                 (setf (values move ponder-move checkmate?)
@@ -719,16 +721,16 @@
                                                               seconds
                                                               debug-stream
                                                               debug-info))
-                                (with-lock-held (moves-lock)
-                                  (vector-push move moves))
+                                (with-lock-held (move-lock)
+                                  (replace current-move move))
+                                (vector-push move moves)
                                 (unless checkmate?
                                   (update-board board move)))))
                        (quit-chess-engines process-1 process-2 prompt-1 prompt-2 engine-name-1 engine-name-2 debug-stream)))))
     (make-chess-gui width
                     height
-                    (let ((current-move 0))
-                      (lambda (&key hud-ecs &allow-other-keys)
-                        (with-lock-held (moves-lock)
-                          (unless (>= current-move (length moves))
-                            (update-visual-board hud-ecs (aref moves current-move))
-                            (incf current-move))))))))
+                    (lambda (&key hud-ecs &allow-other-keys)
+                      (with-lock-held (move-lock)
+                        (unless (position #\Nul current-move)
+                          (update-visual-board hud-ecs current-move)
+                          (fill current-move #\Nul)))))))
