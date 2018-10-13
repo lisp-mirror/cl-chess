@@ -700,56 +700,55 @@
          (current-move (make-string 4 :initial-element #\Nul))
          (moves (make-array 400 :fill-pointer 0)))
     (make-thread (lambda ()
-                   (let* ((board (make-board))
-                          (position-string (let* ((position-string (make-array (+ 23 (* 400 5)) :element-type 'character))
-                                                  (position-string-start "position startpos moves"))
-                                             (dotimes (i (length position-string-start))
-                                               (setf (char position-string i) (char position-string-start i)))
-                                             position-string))
-                          (position-string-position 23)
-                          (threads (floor (1- threads) 2)))
+                   (let ((threads (floor (1- threads) 2)))
                      (with-chess-engine ((process-1 process) (engine-name-1 name) (prompt-1 prompt))
                          chess-engine-1
-                       (with-chess-engine ((process-2 process) (engine-name-2 name) (prompt-2 prompt))
-                           chess-engine-2
-                         (chess-engine-initialize engine-name-1 process-1 threads prompt-1 debug-stream)
-                         (chess-engine-initialize engine-name-2 process-2 threads prompt-2 debug-stream)
-                         (do ((half-turn 0 (1+ half-turn))
-                              (move nil)
-                              (ponder-move "e2e4")
-                              (chess-engines (vector chess-engine-1 chess-engine-2))
-                              (position-string-position position-string-position (+ 5 position-string-position))
-                              (checkmate? nil))
-                             ((or (>= half-turn (* 2 turns)) checkmate? (with-lock-held (status-lock) done?))
-                              (with-lock-held (status-lock)
-                                (unless done?
-                                  (setf done? (if checkmate? :checkmate :out-of-turns))
-                                  (with-lock-held (engine-lock)
-                                    (quit-chess-engines chess-engine-1
-                                                        chess-engine-2
-                                                        debug-stream))))
-                              (when debug-stream
-                                (format debug-stream
-                                        "DEBUG : Final outcome: ~A~%"
-                                        (with-lock-held (status-lock)
-                                          done?))))
-                           (when (zerop (mod half-turn 2))
-                             (format debug-stream "DEBUG : Turn ~D~%" (1+ (ash half-turn -1))))
-                           (with-lock-held (engine-lock)
-                             (setf (values move ponder-move checkmate?)
-                                   (chess-engine-half-turn (aref chess-engines (mod half-turn 2))
-                                                           (aref chess-engines (mod (1+ half-turn) 2))
-                                                           position-string
-                                                           position-string-position
-                                                           ponder-move
-                                                           seconds
-                                                           debug-stream
-                                                           debug-info)))
-                           (with-lock-held (move-lock)
-                             (replace current-move move))
-                           (vector-push move moves)
-                           (unless checkmate?
-                             (update-board board move))))))))
+                       (chess-engine-initialize engine-name-1 process-1 threads prompt-1 debug-stream))
+                     (with-chess-engine ((process-2 process) (engine-name-2 name) (prompt-2 prompt))
+                         chess-engine-2
+                       (chess-engine-initialize engine-name-2 process-2 threads prompt-2 debug-stream)))
+                   (do ((half-turn 0 (1+ half-turn))
+                        (board (make-board))
+                        (move nil)
+                        (ponder-move "e2e4")
+                        (chess-engines (vector chess-engine-1 chess-engine-2))
+                        (position-string (let* ((position-string (make-array (+ 23 (* 400 5)) :element-type 'character))
+                                                (position-string-start "position startpos moves"))
+                                           (dotimes (i (length position-string-start))
+                                             (setf (char position-string i) (char position-string-start i)))
+                                           position-string))
+                        (position-string-position 23 (+ 5 position-string-position))
+                        (checkmate? nil))
+                       ((or (>= half-turn (* 2 turns)) checkmate? (with-lock-held (status-lock) done?))
+                        (with-lock-held (status-lock)
+                          (unless done?
+                            (setf done? (if checkmate? :checkmate :out-of-turns))
+                            (with-lock-held (engine-lock)
+                              (quit-chess-engines chess-engine-1
+                                                  chess-engine-2
+                                                  debug-stream))))
+                        (when debug-stream
+                          (format debug-stream
+                                  "DEBUG : Final outcome: ~A~%"
+                                  (with-lock-held (status-lock)
+                                    done?))))
+                     (when (zerop (mod half-turn 2))
+                       (format debug-stream "DEBUG : Turn ~D~%" (1+ (ash half-turn -1))))
+                     (with-lock-held (engine-lock)
+                       (setf (values move ponder-move checkmate?)
+                             (chess-engine-half-turn (aref chess-engines (mod half-turn 2))
+                                                     (aref chess-engines (mod (1+ half-turn) 2))
+                                                     position-string
+                                                     position-string-position
+                                                     ponder-move
+                                                     seconds
+                                                     debug-stream
+                                                     debug-info)))
+                     (with-lock-held (move-lock)
+                       (replace current-move move))
+                     (vector-push move moves)
+                     (unless checkmate?
+                       (update-board board move)))))
     (make-chess-gui width
                     height
                     (lambda (&key hud-ecs &allow-other-keys)
