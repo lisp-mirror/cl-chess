@@ -20,6 +20,8 @@
                 #:process-info-input
                 #:process-info-output
                 #:wait-process)
+  (:import-from #:uiop/launch-program
+                #:process-info)
   (:export #:chess-engine
            #:chess-game-replay))
 
@@ -646,11 +648,20 @@
                                   (incf i))))))
           moves))
 
-(defun quit-chess-engines (process-1 process-2 prompt-1 prompt-2 engine-name-1 engine-name-2 debug-stream)
-  (quit-chess-engine process-1 prompt-1 debug-stream)
-  (chess-engine-leftover-output engine-name-1 process-1 debug-stream)
-  (quit-chess-engine process-2 prompt-2 debug-stream)
-  (chess-engine-leftover-output engine-name-2 process-2 debug-stream))
+(defstruct chess-engine
+  (process nil :type process-info :read-only t)
+  (name    nil :type string       :read-only t)
+  (prompt  nil :type string       :read-only t))
+
+(define-function quit-chess-engines ((chess-engine-1 chess-engine) (chess-engine-2 chess-engine) debug-stream)
+  (with-accessors* ((process-1 chess-engine-process) (engine-name-1 chess-engine-name) (prompt-1 chess-engine-prompt))
+      chess-engine-1
+    (with-accessors* ((process-2 chess-engine-process) (engine-name-2 chess-engine-name) (prompt-2 chess-engine-prompt))
+        chess-engine-2
+      (quit-chess-engine process-1 prompt-1 debug-stream)
+      (chess-engine-leftover-output engine-name-1 process-1 debug-stream)
+      (quit-chess-engine process-2 prompt-2 debug-stream)
+      (chess-engine-leftover-output engine-name-2 process-2 debug-stream))))
 
 ;;; todo: Record moves in algebraic notation
 ;;;
@@ -675,12 +686,12 @@
     (make-thread (lambda ()
                    (let* ((board (make-board))
                           (mirror-match? (string= engine-name-1 engine-name-2))
-                          (process-1 (launch-program engine-name-1 :input :stream :output :stream))
-                          (process-2 (launch-program engine-name-2 :input :stream :output :stream))
-                          (engine-name-1 (if mirror-match? (concatenate 'string engine-name-1 "-1") engine-name-1))
-                          (engine-name-2 (if mirror-match? (concatenate 'string engine-name-2 "-2") engine-name-2))
-                          (prompt-1 "1 > ")
-                          (prompt-2 "2 > ")
+                          (chess-engine-1 (make-chess-engine :process (launch-program engine-name-1 :input :stream :output :stream)
+                                                             :name (if mirror-match? (concatenate 'string engine-name-1 "-1") engine-name-1)
+                                                             :prompt "1 > "))
+                          (chess-engine-2 (make-chess-engine :process (launch-program engine-name-2 :input :stream :output :stream)
+                                                             :name (if mirror-match? (concatenate 'string engine-name-1 "-2") engine-name-1)
+                                                             :prompt "2 > "))
                           (position-string (let* ((position-string (make-array (+ 23 (* 400 5)) :element-type 'character))
                                                   (position-string-start "position startpos moves"))
                                              (dotimes (i (length position-string-start))
@@ -690,43 +701,47 @@
                           (threads (floor (1- threads) 2)))
                      (unwind-protect
                           (progn
-                            (chess-engine-initialize engine-name-1 process-1 threads prompt-1 debug-stream)
-                            (chess-engine-initialize engine-name-2 process-2 threads prompt-2 debug-stream)
-                            (do ((i 0 (1+ i))
-                                 (move nil)
-                                 (ponder-move "e2e4")
-                                 (position-string-position position-string-position (+ 10 position-string-position))
-                                 (checkmate? nil))
-                                ((or (= i turns) checkmate?)
-                                 (when debug-stream
-                                   (format debug-stream "DEBUG : Final outcome: ~S~%" (if checkmate? "Checkmate!" "Out of turns!"))))
-                              (setf (values move ponder-move checkmate?)
-                                    (chess-engine-half-turn process-1 engine-name-1 prompt-1
-                                                            process-2 engine-name-2 prompt-2
-                                                            position-string position-string-position
-                                                            ponder-move
-                                                            seconds
-                                                            debug-stream
-                                                            debug-info))
-                              (with-lock-held (move-lock)
-                                (replace current-move move))
-                              (vector-push move moves)
-                              (unless checkmate?
-                                (update-board board move)
-                                (setf (values move ponder-move checkmate?)
-                                      (chess-engine-half-turn process-2 engine-name-2 prompt-2
-                                                              process-1 engine-name-1 prompt-1
-                                                              position-string (+ 5 position-string-position)
-                                                              ponder-move
-                                                              seconds
-                                                              debug-stream
-                                                              debug-info))
-                                (with-lock-held (move-lock)
-                                  (replace current-move move))
-                                (vector-push move moves)
-                                (unless checkmate?
-                                  (update-board board move)))))
-                       (quit-chess-engines process-1 process-2 prompt-1 prompt-2 engine-name-1 engine-name-2 debug-stream)))))
+                            (with-accessors* ((process-1 chess-engine-process) (engine-name-1 chess-engine-name) (prompt-1 chess-engine-prompt))
+                                chess-engine-1
+                              (with-accessors* ((process-2 chess-engine-process) (engine-name-2 chess-engine-name) (prompt-2 chess-engine-prompt))
+                                  chess-engine-2
+                                (chess-engine-initialize engine-name-1 process-1 threads prompt-1 debug-stream)
+                                (chess-engine-initialize engine-name-2 process-2 threads prompt-2 debug-stream)
+                                (do ((i 0 (1+ i))
+                                     (move nil)
+                                     (ponder-move "e2e4")
+                                     (position-string-position position-string-position (+ 10 position-string-position))
+                                     (checkmate? nil))
+                                    ((or (= i turns) checkmate?)
+                                     (when debug-stream
+                                       (format debug-stream "DEBUG : Final outcome: ~S~%" (if checkmate? "Checkmate!" "Out of turns!"))))
+                                  (setf (values move ponder-move checkmate?)
+                                        (chess-engine-half-turn process-1 engine-name-1 prompt-1
+                                                                process-2 engine-name-2 prompt-2
+                                                                position-string position-string-position
+                                                                ponder-move
+                                                                seconds
+                                                                debug-stream
+                                                                debug-info))
+                                  (with-lock-held (move-lock)
+                                    (replace current-move move))
+                                  (vector-push move moves)
+                                  (unless checkmate?
+                                    (update-board board move)
+                                    (setf (values move ponder-move checkmate?)
+                                          (chess-engine-half-turn process-2 engine-name-2 prompt-2
+                                                                  process-1 engine-name-1 prompt-1
+                                                                  position-string (+ 5 position-string-position)
+                                                                  ponder-move
+                                                                  seconds
+                                                                  debug-stream
+                                                                  debug-info))
+                                    (with-lock-held (move-lock)
+                                      (replace current-move move))
+                                    (vector-push move moves)
+                                    (unless checkmate?
+                                      (update-board board move)))))))
+                       (quit-chess-engines chess-engine-1 chess-engine-2 debug-stream)))))
     (make-chess-gui width
                     height
                     (lambda (&key hud-ecs &allow-other-keys)
