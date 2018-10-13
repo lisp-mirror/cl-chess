@@ -171,6 +171,13 @@
 
 ;;; Chess engine (UCI)
 
+(defstruct chess-engine
+  (process nil :type process-info :read-only t)
+  (name    nil :type string       :read-only t)
+  (prompt  nil :type string       :read-only t))
+
+(define-accessor-macro with-chess-engine #.(symbol-name '#:chess-engine-))
+
 (defun run-command (command process-input &optional (prompt "> ") debug-stream)
   (when debug-stream
     (write-string prompt debug-stream)
@@ -298,30 +305,33 @@
       (when debug-stream
         (format debug-stream "~A : ~A~%" engine-name line)))))
 
-(defun chess-engine-half-turn (process-active name-active prompt-active
-                               process-pondering name-pondering prompt-pondering
+(defun chess-engine-half-turn (engine-active
+                               engine-pondering
                                position-string position-string-position
                                ponder-move
                                seconds
                                debug-stream
                                debug-info)
   (declare ((or null (simple-array character (4))) ponder-move))
-  (let ((move nil)
-        (new-ponder-move nil))
-    (chess-engine-update-position process-active position-string :prompt prompt-active :debug-stream debug-stream :end position-string-position)
-    (when ponder-move
-      (chess-engine-update-position process-pondering position-string :ponder-move ponder-move :prompt prompt-pondering :debug-stream debug-stream :end position-string-position)
-      (chess-command-ponder-start process-pondering prompt-pondering debug-stream))
-    (setf (values move new-ponder-move)
-          (chess-engine-move name-active process-active seconds prompt-active debug-stream debug-info))
-    (check-type move (simple-array character (4)))
-    (check-type new-ponder-move (or null (simple-array character (4))) ponder-move)
-    (setf (char position-string position-string-position) #\Space)
-    (dotimes (i 4)
-      (setf (char position-string (1+ (+ position-string-position i))) (char move i)))
-    (when ponder-move
-      (chess-engine-ponder-end name-pondering process-pondering (string= move ponder-move) prompt-pondering debug-stream debug-info))
-    (values move new-ponder-move (string= move "CHECKMATE"))))
+  (with-chess-engine ((process-active process) (name-active name) (prompt-active prompt))
+      engine-active
+    (with-chess-engine ((process-pondering process) (name-pondering name) (prompt-pondering prompt))
+        engine-pondering
+      (let ((move nil)
+            (new-ponder-move nil))
+        (chess-engine-update-position process-active position-string :prompt prompt-active :debug-stream debug-stream :end position-string-position)
+        (when ponder-move
+          (chess-engine-update-position process-pondering position-string :ponder-move ponder-move :prompt prompt-pondering :debug-stream debug-stream :end position-string-position)
+          (chess-command-ponder-start process-pondering prompt-pondering debug-stream))
+        (setf (values move new-ponder-move)
+              (chess-engine-move name-active process-active seconds prompt-active debug-stream debug-info))
+        (check-type move (simple-array character (4)))
+        (check-type new-ponder-move (or null (simple-array character (4))) ponder-move)
+        (setf (char position-string position-string-position) #\Space)
+        (replace position-string move :start1 (1+ position-string-position) :end1 (+ 5 position-string-position))
+        (when ponder-move
+          (chess-engine-ponder-end name-pondering process-pondering (string= move ponder-move) prompt-pondering debug-stream debug-info))
+        (values move new-ponder-move (string= move "CHECKMATE"))))))
 
 ;;; Visuals
 
@@ -471,8 +481,8 @@
   (or (and (zerop (mod y 2)) (not (zerop (mod x 2))))
       (and (not (zerop (mod y 2))) (zerop (mod x 2)))))
 
-(defun make-chess-graphics (&key ecs hud-ecs labels mesh-keys width height)
-  (declare (ignore labels width))
+(defun make-chess-graphics (&key ecs hud-ecs mesh-keys width height)
+  (declare (ignore width))
   ;; Sets the board and camera
   (let* ((scale (min (/ height 10f0) 64f0))
          (square-scale (vec scale scale 1f0)))
@@ -610,7 +620,7 @@
       (error "Not a supported move to parse."))
   move)
 
-(define-function (make-chess-gui :inline t) (width height script-function &key fullscreen)
+(define-function (make-chess-gui :inline t) (width height script-function init-function &key fullscreen)
   (let ((settings (make-settings :title "CL Chess"
                                  :width width
                                  :height height
@@ -626,7 +636,7 @@
                :textures (list (textures))
                :models (make-instance 'models :models (square-model))
                :controls controls
-               :init-function #'make-chess-graphics
+               :init-function init-function
                :script-function script-function)))
 
 (define-function (chess-game-replay :check-type t)
@@ -645,15 +655,9 @@
                                 (let ((move (aref moves i)))
                                   (update-board board move)
                                   (update-visual-board hud-ecs move)
-                                  (incf i))))))
+                                  (incf i)))))
+                          #'make-chess-graphics)
           moves))
-
-(defstruct chess-engine
-  (process nil :type process-info :read-only t)
-  (name    nil :type string       :read-only t)
-  (prompt  nil :type string       :read-only t))
-
-(define-accessor-macro with-chess-engine #.(symbol-name '#:chess-engine-))
 
 (define-function quit-chess-engines ((chess-engine-1 chess-engine) (chess-engine-2 chess-engine) debug-stream)
   (with-chess-engine ((process-1 process) (engine-name-1 name) (prompt-1 prompt))
@@ -683,17 +687,20 @@
      (width 1280 (integer 200))
      (height 720 (integer 200)))
   (let* ((move-lock (make-lock))
+         (engine-lock (make-lock))
+         (status-lock (make-lock))
+         (mirror-match? (string= engine-name-1 engine-name-2))
+         (chess-engine-1 (make-chess-engine :process (launch-program engine-name-1 :input :stream :output :stream)
+                                            :name (if mirror-match? (concatenate 'string engine-name-1 "-1") engine-name-1)
+                                            :prompt "1 > "))
+         (chess-engine-2 (make-chess-engine :process (launch-program engine-name-2 :input :stream :output :stream)
+                                            :name (if mirror-match? (concatenate 'string engine-name-2 "-2") engine-name-2)
+                                            :prompt "2 > "))
+         (done? nil)
          (current-move (make-string 4 :initial-element #\Nul))
          (moves (make-array 400 :fill-pointer 0)))
     (make-thread (lambda ()
                    (let* ((board (make-board))
-                          (mirror-match? (string= engine-name-1 engine-name-2))
-                          (chess-engine-1 (make-chess-engine :process (launch-program engine-name-1 :input :stream :output :stream)
-                                                             :name (if mirror-match? (concatenate 'string engine-name-1 "-1") engine-name-1)
-                                                             :prompt "1 > "))
-                          (chess-engine-2 (make-chess-engine :process (launch-program engine-name-2 :input :stream :output :stream)
-                                                             :name (if mirror-match? (concatenate 'string engine-name-2 "-2") engine-name-2)
-                                                             :prompt "2 > "))
                           (position-string (let* ((position-string (make-array (+ 23 (* 400 5)) :element-type 'character))
                                                   (position-string-start "position startpos moves"))
                                              (dotimes (i (length position-string-start))
@@ -701,53 +708,68 @@
                                              position-string))
                           (position-string-position 23)
                           (threads (floor (1- threads) 2)))
-                     (unwind-protect
-                          (progn
-                            (with-chess-engine ((process-1 process) (engine-name-1 name) (prompt-1 prompt))
-                                chess-engine-1
-                              (with-chess-engine ((process-2 process) (engine-name-2 name) (prompt-2 prompt))
-                                  chess-engine-2
-                                (chess-engine-initialize engine-name-1 process-1 threads prompt-1 debug-stream)
-                                (chess-engine-initialize engine-name-2 process-2 threads prompt-2 debug-stream)
-                                (do ((i 0 (1+ i))
-                                     (move nil)
-                                     (ponder-move "e2e4")
-                                     (position-string-position position-string-position (+ 10 position-string-position))
-                                     (checkmate? nil))
-                                    ((or (= i turns) checkmate?)
-                                     (when debug-stream
-                                       (format debug-stream "DEBUG : Final outcome: ~S~%" (if checkmate? "Checkmate!" "Out of turns!"))))
-                                  (setf (values move ponder-move checkmate?)
-                                        (chess-engine-half-turn process-1 engine-name-1 prompt-1
-                                                                process-2 engine-name-2 prompt-2
-                                                                position-string position-string-position
-                                                                ponder-move
-                                                                seconds
-                                                                debug-stream
-                                                                debug-info))
-                                  (with-lock-held (move-lock)
-                                    (replace current-move move))
-                                  (vector-push move moves)
-                                  (unless checkmate?
-                                    (update-board board move)
-                                    (setf (values move ponder-move checkmate?)
-                                          (chess-engine-half-turn process-2 engine-name-2 prompt-2
-                                                                  process-1 engine-name-1 prompt-1
-                                                                  position-string (+ 5 position-string-position)
-                                                                  ponder-move
-                                                                  seconds
-                                                                  debug-stream
-                                                                  debug-info))
-                                    (with-lock-held (move-lock)
-                                      (replace current-move move))
-                                    (vector-push move moves)
-                                    (unless checkmate?
-                                      (update-board board move)))))))
-                       (quit-chess-engines chess-engine-1 chess-engine-2 debug-stream)))))
+                     (with-chess-engine ((process-1 process) (engine-name-1 name) (prompt-1 prompt))
+                         chess-engine-1
+                       (with-chess-engine ((process-2 process) (engine-name-2 name) (prompt-2 prompt))
+                           chess-engine-2
+                         (chess-engine-initialize engine-name-1 process-1 threads prompt-1 debug-stream)
+                         (chess-engine-initialize engine-name-2 process-2 threads prompt-2 debug-stream)
+                         (do ((half-turn 0 (1+ half-turn))
+                              (move nil)
+                              (ponder-move "e2e4")
+                              (chess-engines (vector chess-engine-1 chess-engine-2))
+                              (position-string-position position-string-position (+ 5 position-string-position))
+                              (checkmate? nil))
+                             ((or (>= half-turn (* 2 turns)) checkmate? (with-lock-held (status-lock) done?))
+                              (with-lock-held (status-lock)
+                                (unless done?
+                                  (setf done? (if checkmate? :checkmate :out-of-turns))
+                                  (with-lock-held (engine-lock)
+                                    (quit-chess-engines chess-engine-1
+                                                        chess-engine-2
+                                                        debug-stream))))
+                              (when debug-stream
+                                (format debug-stream
+                                        "DEBUG : Final outcome: ~A~%"
+                                        (with-lock-held (status-lock)
+                                          done?))))
+                           (when (zerop (mod half-turn 2))
+                             (format debug-stream "DEBUG : Turn ~D~%" (1+ (ash half-turn -1))))
+                           (with-lock-held (engine-lock)
+                             (setf (values move ponder-move checkmate?)
+                                   (chess-engine-half-turn (aref chess-engines (mod half-turn 2))
+                                                           (aref chess-engines (mod (1+ half-turn) 2))
+                                                           position-string
+                                                           position-string-position
+                                                           ponder-move
+                                                           seconds
+                                                           debug-stream
+                                                           debug-info)))
+                           (with-lock-held (move-lock)
+                             (replace current-move move))
+                           (vector-push move moves)
+                           (unless checkmate?
+                             (update-board board move))))))))
     (make-chess-gui width
                     height
                     (lambda (&key hud-ecs &allow-other-keys)
                       (with-lock-held (move-lock)
                         (unless (position #\Nul current-move)
                           (update-visual-board hud-ecs current-move)
-                          (fill current-move #\Nul)))))))
+                          (fill current-move #\Nul))))
+                    (lambda (&key ecs hud-ecs mesh-keys width height)
+                      (make-chess-graphics :ecs ecs
+                                           :hud-ecs hud-ecs
+                                           :mesh-keys mesh-keys
+                                           :width width
+                                           :height height)
+                      (values nil
+                              nil
+                              (lambda ()
+                                (with-lock-held (status-lock)
+                                  (unless done?
+                                    (setf done? :gui-quit)
+                                    (with-lock-held (engine-lock)
+                                      (quit-chess-engines chess-engine-1
+                                                          chess-engine-2
+                                                          debug-stream))))))))))
