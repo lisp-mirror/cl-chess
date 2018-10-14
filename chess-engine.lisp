@@ -201,6 +201,35 @@
   (write-line command process-input :end end)
   (force-output process-input))
 
+;;; todo: kill process if uciok is never received
+(define-function (initialize-uci :inline t) (name input output prompt debug-stream)
+  (run-command "uci" input prompt debug-stream)
+  (do ((line (read-line output nil)
+             (read-line output nil)))
+      ((or (eql :eof line)
+           (string= "uciok" line))
+       (print-chess-engine-output name line debug-stream))
+    (print-chess-engine-output name line debug-stream)))
+
+(define-function (set-option :inline t) (name value input prompt debug-stream)
+  (run-command (format nil "setoption name ~A~@[ value ~A~]" name value) input prompt debug-stream))
+
+;;; todo: verify that the chess engine says "readyok"
+(define-function (ready? :inline t) (name input output prompt debug-stream)
+  (run-command "isready" input prompt debug-stream)
+  (print-chess-engine-output name (read-line output) debug-stream))
+
+(defun initialize-chess-engine (chess-engine threads &optional debug-stream)
+  (with-chess-engine (process name prompt)
+      chess-engine
+    (let ((input (process-info-input process))
+          (output (process-info-output process)))
+      (initialize-uci name input output prompt debug-stream)
+      (set-option "Threads" threads input prompt debug-stream)
+      (ready? name input output prompt debug-stream)
+      (run-command "ucinewgame" input prompt debug-stream)
+      (ready? name input output prompt debug-stream))))
+
 (define-function quit-chess-engine ((chess-engine chess-engine) debug-stream)
   (with-chess-engine (process prompt)
       chess-engine
@@ -222,33 +251,6 @@
   (chess-engine-leftover-output chess-engine-1 debug-stream)
   (quit-chess-engine chess-engine-2 debug-stream)
   (chess-engine-leftover-output chess-engine-2 debug-stream))
-
-(defun chess-engine-initialize (chess-engine threads &optional debug-stream)
-  (with-chess-engine (process name prompt)
-      chess-engine
-    (let ((input (process-info-input process))
-          (output (process-info-output process)))
-      ;; Sends it the UCI command and handles the results, as well as
-      ;; anything that was output before the UCI command was sent, if
-      ;; anything.
-      (run-command "uci" input prompt debug-stream)
-      ;; todo: kill process if uciok is never received
-      (do ((line (read-line output nil)
-                 (read-line output nil)))
-          ((or (eql :eof line)
-               (string= "uciok" line))
-           (print-chess-engine-output name line debug-stream))
-        (print-chess-engine-output name line debug-stream))
-      (run-command (format nil "setoption name Threads value ~D" threads) input prompt debug-stream)
-      (run-command "isready" input prompt debug-stream)
-      ;; wait for a response to isready
-      (let ((ready? (read-line output)))
-        (print-chess-engine-output name ready? debug-stream))
-      (run-command "ucinewgame" input prompt debug-stream)
-      (run-command "isready" input prompt debug-stream)
-      ;; wait for a response to isready
-      (let ((ready? (read-line output)))
-        (print-chess-engine-output name ready? debug-stream)))))
 
 (defun chess-engine-update-position (chess-engine-process position-string &key ponder-move (prompt "> ") debug-stream end)
   (declare ((maybe move) ponder-move))
@@ -710,8 +712,8 @@
                                        debug-stream))))))
       (make-thread (lambda ()
                      (let ((threads (floor (1- threads) 2)))
-                       (chess-engine-initialize chess-engine-1 threads debug-stream)
-                       (chess-engine-initialize chess-engine-2 threads debug-stream))
+                       (initialize-chess-engine chess-engine-1 threads debug-stream)
+                       (initialize-chess-engine chess-engine-2 threads debug-stream))
                      (let ((position-string-prefix "position startpos moves")
                            (move-length 4)
                            (moves (make-array 400 :fill-pointer 0)))
