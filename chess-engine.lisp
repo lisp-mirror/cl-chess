@@ -26,13 +26,15 @@
   (process nil :type process-info :read-only t)
   (input   nil :type stream       :read-only t)
   (output  nil :type stream       :read-only t)
+  (debug   nil :type (maybe stream))
   (name    nil :type string       :read-only t)
   (prompt  nil :type string       :read-only t))
 
-(define-function (make-chess-engine :inline t) (&key process name prompt)
+(define-function (make-chess-engine :inline t) (&key process name prompt debug-stream)
   (%make-chess-engine :process process
                       :input (process-info-input process)
                       :output (process-info-output process)
+                      :debug debug-stream
                       :name name
                       :prompt prompt))
 
@@ -92,37 +94,36 @@
 (define-function (stop :inline t) (input prompt debug-stream)
   (run-command "stop" input prompt debug-stream))
 
-(defun initialize-chess-engine (chess-engine threads debug-stream)
-  (with-chess-engine (input output name prompt)
+(defun initialize-chess-engine (chess-engine threads)
+  (with-chess-engine (input output name prompt debug)
       chess-engine
-    (read-opening-message name output debug-stream)
-    (initialize-uci name input output prompt debug-stream)
-    (set-option "Threads" threads input prompt debug-stream)
-    (ready? name input output prompt debug-stream)
-    (new-game name input output prompt debug-stream)))
+    (read-opening-message name output debug)
+    (initialize-uci name input output prompt debug)
+    (set-option "Threads" threads input prompt debug)
+    (ready? name input output prompt debug)
+    (new-game name input output prompt debug)))
 
-(define-function quit-chess-engine ((chess-engine chess-engine) debug-stream)
-  (with-chess-engine (process input prompt)
-      chess-engine
-    (run-command "quit" input prompt debug-stream)
-    (wait-process process)))
-
-(define-function chess-engine-leftover-output ((chess-engine chess-engine) debug-stream)
-  (with-chess-engine (output name)
+(define-function chess-engine-leftover-output ((chess-engine chess-engine))
+  (with-chess-engine (output name debug)
       chess-engine
     (do ((line (read-line output nil :eof)
                (read-line output nil :eof)))
         ((eql line :eof))
-      (print-chess-engine-output name line debug-stream))))
+      (print-chess-engine-output name line debug))))
 
-(define-function quit-chess-engines ((chess-engine-1 chess-engine) (chess-engine-2 chess-engine) debug-stream)
-  (quit-chess-engine chess-engine-1 debug-stream)
-  (chess-engine-leftover-output chess-engine-1 debug-stream)
-  (quit-chess-engine chess-engine-2 debug-stream)
-  (chess-engine-leftover-output chess-engine-2 debug-stream))
+(define-function quit-chess-engine ((chess-engine chess-engine))
+  (with-chess-engine (process input prompt debug)
+      chess-engine
+    (run-command "quit" input prompt debug)
+    (wait-process process)
+    (chess-engine-leftover-output chess-engine)))
 
-(define-function update-position (chess-engine position-string (ponder-move (maybe move)) debug-stream end)
-  (with-chess-engine (input prompt)
+(define-function quit-chess-engines ((chess-engine-1 chess-engine) (chess-engine-2 chess-engine))
+  (quit-chess-engine chess-engine-1)
+  (quit-chess-engine chess-engine-2))
+
+(define-function update-position (chess-engine position-string (ponder-move (maybe move)) end)
+  (with-chess-engine (input prompt debug)
       chess-engine
     (when ponder-move
       (setf (char position-string end) #\Space)
@@ -130,16 +131,16 @@
     (run-command position-string
                  input
                  prompt
-                 debug-stream
+                 debug
                  (if ponder-move (+ end 5) end))
     (when ponder-move
       (fill position-string #\Nul :start end :end (+ end 5)))))
 
 ;;; todo: what is move when the move is a promotion? is it length 5?
-(defun chess-engine-move (chess-engine seconds debug-stream debug-info)
-  (with-chess-engine (input output name prompt)
+(defun chess-engine-move (chess-engine seconds debug-info)
+  (with-chess-engine (input output name prompt debug)
       chess-engine
-    (go-move seconds input prompt debug-stream)
+    (go-move seconds input prompt debug)
     (do ((line (read-line output nil :eof)
                (read-line output nil :eof))
          (checkmate? nil))
@@ -149,7 +150,7 @@
          (if checkmate?
              (values "CHECKMATE" nil)
              (let ((ponder? (position #\Space line :start 9)))
-               (print-chess-engine-output name line debug-stream)
+               (print-chess-engine-output name line debug)
                (values (subseq line 9 ponder?)
                        (if ponder?
                            (if (and (> (length line) (+ 8 ponder?))
@@ -168,27 +169,27 @@
                                       (parse-integer line :start number-start))))
                 (when (<= mate-number 0)
                   (setf checkmate? t))))))
-        (unless (or (not debug-stream)
+        (unless (or (not debug)
                     (and (not debug-info) info?))
-          (format debug-stream "~A : ~A~%" name line))))))
+          (format debug "~A : ~A~%" name line))))))
 
-(defun chess-engine-ponder-end (chess-engine success debug-stream debug-info)
-  (with-chess-engine (input output name prompt)
+(defun chess-engine-ponder-end (chess-engine success debug-info)
+  (with-chess-engine (input output name prompt debug)
       chess-engine
     (if success
-        (ponder-hit input prompt debug-stream)
-        (stop input prompt debug-stream))
+        (ponder-hit input prompt debug)
+        (stop input prompt debug))
     ;; Note: technically, the info is generated while it's pondering
     ;; and merely read here after stop
     (do ((line (read-line output nil :eof)
                (read-line output nil :eof)))
         ((or (eql :eof line)
              (and (>= (length line) 8) (string= "bestmove" line :start2 0 :end2 8)))
-         (print-chess-engine-output name line debug-stream))
+         (print-chess-engine-output name line debug))
       (let ((info? (and (>= (length line) 4) (string= "info" line :start2 0 :end2 4))))
-        (unless (or (not debug-stream)
+        (unless (or (not debug)
                     (and (not debug-info) info?))
-          (format debug-stream "~A : ~A~%" name line))))))
+          (format debug "~A : ~A~%" name line))))))
 
 (define-function chess-engine-half-turn ((engine-active chess-engine)
                                          (engine-pondering chess-engine)
@@ -196,32 +197,23 @@
                                          position-string-position
                                          (ponder-move (maybe move))
                                          seconds
-                                         debug-stream
                                          debug-info)
   (let ((move nil)
         (new-ponder-move nil))
-    (update-position engine-active
-                     position-string
-                     nil
-                     debug-stream
-                     position-string-position)
+    (update-position engine-active position-string nil position-string-position)
     (when ponder-move
-      (update-position engine-pondering
-                       position-string
-                       ponder-move
-                       debug-stream
-                       position-string-position)
-      (with-chess-engine (input prompt)
+      (update-position engine-pondering position-string ponder-move position-string-position)
+      (with-chess-engine (input prompt debug)
           engine-pondering
-        (go-ponder input prompt debug-stream)))
+        (go-ponder input prompt debug)))
     (setf (values move new-ponder-move)
-          (chess-engine-move engine-active seconds debug-stream debug-info))
+          (chess-engine-move engine-active seconds debug-info))
     (check-type move move)
     (check-type new-ponder-move (maybe move) ponder-move)
     (setf (char position-string position-string-position) #\Space)
     (replace position-string move :start1 (1+ position-string-position) :end1 (+ 5 position-string-position))
     (when ponder-move
-      (chess-engine-ponder-end engine-pondering (string= move ponder-move) debug-stream debug-info))
+      (chess-engine-ponder-end engine-pondering (string= move ponder-move) debug-info))
     (values move new-ponder-move (string= move "CHECKMATE"))))
 
 (define-function (make-chess-gui :inline t) (width height script-function init-function &key fullscreen)
@@ -247,7 +239,7 @@
     ((moves vector)
      &key
      (seconds 2 (integer 0))
-     (debug-stream nil (or boolean stream))
+     (debug-stream nil (maybe stream))
      (width 1280 (integer 200))
      (height 720 (integer 200)))
   (values (make-chess-gui width
@@ -286,10 +278,12 @@
          (mirror-match? (string= engine-name-1 engine-name-2))
          (chess-engine-1 (make-chess-engine :process (launch-program engine-name-1 :input :stream :output :stream)
                                             :name (if mirror-match? (concatenate 'string engine-name-1 "-1") engine-name-1)
-                                            :prompt "1 > "))
+                                            :prompt "1 > "
+                                            :debug-stream debug-stream))
          (chess-engine-2 (make-chess-engine :process (launch-program engine-name-2 :input :stream :output :stream)
                                             :name (if mirror-match? (concatenate 'string engine-name-2 "-2") engine-name-2)
-                                            :prompt "2 > "))
+                                            :prompt "2 > "
+                                            :debug-stream debug-stream))
          (done? nil)
          (current-move (make-string 4 :initial-element #\Nul)))
     (flet ((quit-if-necessary (status-lock engine-lock final-status)
@@ -297,13 +291,11 @@
                (unless done?
                  (setf done? final-status)
                  (with-lock-held (engine-lock)
-                   (quit-chess-engines chess-engine-1
-                                       chess-engine-2
-                                       debug-stream))))))
+                   (quit-chess-engines chess-engine-1 chess-engine-2))))))
       (make-thread (lambda ()
                      (let ((threads (floor (1- threads) 2)))
-                       (initialize-chess-engine chess-engine-1 threads debug-stream)
-                       (initialize-chess-engine chess-engine-2 threads debug-stream))
+                       (initialize-chess-engine chess-engine-1 threads)
+                       (initialize-chess-engine chess-engine-2 threads))
                      (let ((position-string-prefix "position startpos moves")
                            (move-length 4))
                        (do ((half-turn 0 (1+ half-turn))
@@ -339,7 +331,6 @@
                                                          position-string-position
                                                          ponder-move
                                                          seconds
-                                                         debug-stream
                                                          debug-info)))
                          (with-lock-held (move-lock)
                            (replace current-move move))
