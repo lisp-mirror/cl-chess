@@ -197,10 +197,28 @@
   (write-line command process-input :end end)
   (force-output process-input))
 
-(defun quit-chess-engine (process &optional (prompt "> ") debug-stream)
-  (let ((process-input (process-info-input process)))
-    (run-command "quit" process-input prompt debug-stream)
-    (wait-process process)))
+(define-function quit-chess-engine ((chess-engine chess-engine) debug-stream)
+  (with-chess-engine (process prompt)
+      chess-engine
+    (let ((process-input (process-info-input process)))
+      (run-command "quit" process-input prompt debug-stream)
+      (wait-process process))))
+
+(define-function chess-engine-leftover-output ((chess-engine chess-engine) debug-stream)
+  (with-chess-engine (process name)
+      chess-engine
+    (let ((output (process-info-output process)))
+      (do ((line (read-line output nil :eof)
+                 (read-line output nil :eof)))
+          ((eql line :eof))
+        (when debug-stream
+          (format debug-stream "~A : ~A~%" name line))))))
+
+(define-function quit-chess-engines ((chess-engine-1 chess-engine) (chess-engine-2 chess-engine) debug-stream)
+  (quit-chess-engine chess-engine-1 debug-stream)
+  (chess-engine-leftover-output chess-engine-1 debug-stream)
+  (quit-chess-engine chess-engine-2 debug-stream)
+  (chess-engine-leftover-output chess-engine-2 debug-stream))
 
 (defun chess-engine-initialize (chess-engine threads &optional debug-stream)
   (with-chess-engine ((chess-engine-process process) (engine-name name) prompt)
@@ -299,14 +317,6 @@
         (unless (or (not debug-stream)
                     (and (not debug-info) info?))
           (format debug-stream "~A : ~A~%" engine-name line))))))
-
-(defun chess-engine-leftover-output (engine-name chess-engine-process debug-stream)
-  (let ((output (process-info-output chess-engine-process)))
-    (do ((line (read-line output nil :eof)
-               (read-line output nil :eof)))
-        ((eql line :eof))
-      (when debug-stream
-        (format debug-stream "~A : ~A~%" engine-name line)))))
 
 (defun chess-engine-half-turn (engine-active
                                engine-pondering
@@ -661,16 +671,6 @@
                                   (incf i)))))
                           #'make-chess-graphics)
           moves))
-
-(define-function quit-chess-engines ((chess-engine-1 chess-engine) (chess-engine-2 chess-engine) debug-stream)
-  (with-chess-engine ((process-1 process) (engine-name-1 name) (prompt-1 prompt))
-      chess-engine-1
-    (with-chess-engine ((process-2 process) (engine-name-2 name) (prompt-2 prompt))
-        chess-engine-2
-      (quit-chess-engine process-1 prompt-1 debug-stream)
-      (chess-engine-leftover-output engine-name-1 process-1 debug-stream)
-      (quit-chess-engine process-2 prompt-2 debug-stream)
-      (chess-engine-leftover-output engine-name-2 process-2 debug-stream))))
 
 ;;; todo: Record moves in algebraic notation
 ;;;
