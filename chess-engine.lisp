@@ -204,6 +204,7 @@
 ;;; todo: kill process if uciok is never received
 (define-function (initialize-uci :inline t) (name input output prompt debug-stream)
   (run-command "uci" input prompt debug-stream)
+  ;; todo: parse the metadata, especially the options
   (do ((line (read-line output nil)
              (read-line output nil)))
       ((or (eql :eof line)
