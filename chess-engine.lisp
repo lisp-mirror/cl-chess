@@ -168,14 +168,13 @@
                     (and (not debug-info) info?))
           (format debug-stream "~A : ~A~%" engine-name line))))))
 
-(defun chess-engine-half-turn (engine-active
-                               engine-pondering
-                               position-string position-string-position
-                               ponder-move
-                               seconds
-                               debug-stream
-                               debug-info)
-  (declare ((maybe move) ponder-move))
+(define-function chess-engine-half-turn (engine-active
+                                         engine-pondering
+                                         position-string position-string-position
+                                         (ponder-move (maybe move))
+                                         seconds
+                                         debug-stream
+                                         debug-info)
   (with-chess-engine ((process-active process) (name-active name) (prompt-active prompt))
       engine-active
     (with-chess-engine ((process-pondering process) (name-pondering name) (prompt-pondering prompt))

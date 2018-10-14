@@ -260,8 +260,7 @@
     (setf mesh-id new-shape)))
 
 ;;; todo: Verify that the castling is legal
-(defun update-visual-board (hud-ecs move)
-  (declare (entity-component-system hud-ecs))
+(define-function update-visual-board ((hud-ecs entity-component-system) move)
   (if (= (length move) 4)
       (multiple-value-bind (start-x start-y)
           (%char-to-coords (char move 0) (char move 1))
