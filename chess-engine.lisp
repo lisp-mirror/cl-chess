@@ -171,6 +171,9 @@
 
 ;;; Chess engine (UCI)
 
+(deftype move ()
+  `(simple-string 4))
+
 (defstruct chess-engine
   (process nil :type process-info :read-only t)
   (name    nil :type string       :read-only t)
@@ -231,15 +234,13 @@
           (format debug-stream "~A : ~A~%" engine-name ready?))))))
 
 (defun chess-engine-update-position (chess-engine-process position-string &key ponder-move (prompt "> ") debug-stream end)
-  (declare ((or null (simple-array character (4))) ponder-move))
+  (declare ((maybe move) ponder-move))
   (when ponder-move
     (setf (char position-string end) #\Space)
-    (dotimes (i 4)
-      (setf (char position-string (1+ (+ end i))) (char ponder-move i))))
+    (replace position-string ponder-move :start1 (1+ end)))
   (run-command* position-string (process-info-input chess-engine-process) :end (if ponder-move (+ end 5) end) :prompt prompt :debug-stream debug-stream)
   (when ponder-move
-    (dotimes (i 5)
-      (setf (char position-string (+ end i)) #\Null))))
+    (fill position-string #\Nul :start end :end (+ end 5))))
 
 ;;; todo: what is move when the move is a promotion? is it length 5?
 (defun chess-engine-move (engine-name chess-engine-process seconds &optional (prompt "> ") debug-stream debug-info)
@@ -314,7 +315,7 @@
                                seconds
                                debug-stream
                                debug-info)
-  (declare ((or null (simple-array character (4))) ponder-move))
+  (declare ((maybe move) ponder-move))
   (with-chess-engine ((process-active process) (name-active name) (prompt-active prompt))
       engine-active
     (with-chess-engine ((process-pondering process) (name-pondering name) (prompt-pondering prompt))
@@ -327,8 +328,8 @@
           (chess-command-ponder-start process-pondering prompt-pondering debug-stream))
         (setf (values move new-ponder-move)
               (chess-engine-move name-active process-active seconds prompt-active debug-stream debug-info))
-        (check-type move (simple-array character (4)))
-        (check-type new-ponder-move (or null (simple-array character (4))) ponder-move)
+        (check-type move move)
+        (check-type new-ponder-move (maybe move) ponder-move)
         (setf (char position-string position-string-position) #\Space)
         (replace position-string move :start1 (1+ position-string-position) :end1 (+ 5 position-string-position))
         (when ponder-move
@@ -721,7 +722,8 @@
                             (ponder-move "e2e4")
                             (chess-engines (vector chess-engine-1 chess-engine-2))
                             (position-string (replace (make-array (+ (length position-string-prefix) (* 400 (1+ move-length)))
-                                                                  :element-type 'character)
+                                                                  :element-type 'character
+                                                                  :initial-element #\Nul)
                                                       position-string-prefix))
                             (position-string-position (length position-string-prefix)
                                                       (+ (1+ move-length) position-string-position))
