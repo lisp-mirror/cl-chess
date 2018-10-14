@@ -181,6 +181,10 @@
 
 (define-accessor-macro with-chess-engine #.(symbol-name '#:chess-engine-))
 
+(define-function (print-chess-engine-output :inline t) (name line debug-stream)
+  (when debug-stream
+    (format debug-stream "~A : ~A~%" name line)))
+
 (defun run-command (command process-input &optional (prompt "> ") debug-stream)
   (when debug-stream
     (write-string prompt debug-stream)
@@ -211,8 +215,7 @@
       (do ((line (read-line output nil :eof)
                  (read-line output nil :eof)))
           ((eql line :eof))
-        (when debug-stream
-          (format debug-stream "~A : ~A~%" name line))))))
+        (print-chess-engine-output name line debug-stream)))))
 
 (define-function quit-chess-engines ((chess-engine-1 chess-engine) (chess-engine-2 chess-engine) debug-stream)
   (quit-chess-engine chess-engine-1 debug-stream)
@@ -221,10 +224,10 @@
   (chess-engine-leftover-output chess-engine-2 debug-stream))
 
 (defun chess-engine-initialize (chess-engine threads &optional debug-stream)
-  (with-chess-engine ((chess-engine-process process) (engine-name name) prompt)
+  (with-chess-engine (process name prompt)
       chess-engine
-    (let ((input (process-info-input chess-engine-process))
-          (output (process-info-output chess-engine-process)))
+    (let ((input (process-info-input process))
+          (output (process-info-output process)))
       ;; Sends it the UCI command and handles the results, as well as
       ;; anything that was output before the UCI command was sent, if
       ;; anything.
@@ -234,22 +237,18 @@
                  (read-line output nil)))
           ((or (eql :eof line)
                (string= "uciok" line))
-           (when debug-stream
-             (format debug-stream "~A : ~A~%" engine-name line)))
-        (when debug-stream
-          (format debug-stream "~A : ~A~%" engine-name line)))
+           (print-chess-engine-output name line debug-stream))
+        (print-chess-engine-output name line debug-stream))
       (run-command (format nil "setoption name Threads value ~D" threads) input prompt debug-stream)
       (run-command "isready" input prompt debug-stream)
       ;; wait for a response to isready
       (let ((ready? (read-line output)))
-        (when debug-stream
-          (format debug-stream "~A : ~A~%" engine-name ready?)))
+        (print-chess-engine-output name ready? debug-stream))
       (run-command "ucinewgame" input prompt debug-stream)
       (run-command "isready" input prompt debug-stream)
       ;; wait for a response to isready
       (let ((ready? (read-line output)))
-        (when debug-stream
-          (format debug-stream "~A : ~A~%" engine-name ready?))))))
+        (print-chess-engine-output name ready? debug-stream)))))
 
 (defun chess-engine-update-position (chess-engine-process position-string &key ponder-move (prompt "> ") debug-stream end)
   (declare ((maybe move) ponder-move))
