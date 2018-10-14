@@ -50,6 +50,13 @@
   (write-line command process-input :end end)
   (force-output process-input))
 
+(define-function (read-opening-message :inline t) (name output debug-stream)
+  (when debug-stream (format debug-stream "~A : " name))
+  (do ((char (read-char-no-hang output nil :eof)
+             (read-char-no-hang output nil :eof)))
+      ((or (null char) (eql :eof char)))
+    (when debug-stream (write-char char debug-stream))))
+
 ;;; todo: kill process if uciok is never received
 (define-function (initialize-uci :inline t) (name input output prompt debug-stream)
   (run-command "uci" input prompt debug-stream)
@@ -88,6 +95,7 @@
 (defun initialize-chess-engine (chess-engine threads debug-stream)
   (with-chess-engine (input output name prompt)
       chess-engine
+    (read-opening-message name output debug-stream)
     (initialize-uci name input output prompt debug-stream)
     (set-option "Threads" threads input prompt debug-stream)
     (ready? name input output prompt debug-stream)
