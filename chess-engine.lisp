@@ -42,15 +42,7 @@
   (when debug-stream
     (format debug-stream "~A : ~A~%" name line)))
 
-(defun run-command (command process-input &optional (prompt "> ") debug-stream)
-  (when debug-stream
-    (write-string prompt debug-stream)
-    (write-string command debug-stream)
-    (terpri debug-stream))
-  (write-line command process-input)
-  (force-output process-input))
-
-(defun run-command* (command process-input &key (prompt "> ") debug-stream end)
+(defun run-command (command process-input &optional (prompt "> ") debug-stream end)
   (when debug-stream
     (write-string prompt debug-stream)
     (write-string command debug-stream :end end)
@@ -87,6 +79,12 @@
 (define-function (go-move :inline t) (seconds input prompt debug-stream)
   (run-command (format nil "go movetime ~D000" seconds) input prompt debug-stream))
 
+(define-function (ponder-hit :inline t) (input prompt debug-stream)
+  (run-command "ponderhit" input prompt debug-stream))
+
+(define-function (stop :inline t) (input prompt debug-stream)
+  (run-command "stop" input prompt debug-stream))
+
 (defun initialize-chess-engine (chess-engine threads debug-stream)
   (with-chess-engine (input output name prompt)
       chess-engine
@@ -115,17 +113,17 @@
   (quit-chess-engine chess-engine-2 debug-stream)
   (chess-engine-leftover-output chess-engine-2 debug-stream))
 
-(define-function chess-engine-update-position (chess-engine position-string (ponder-move (maybe move)) debug-stream end)
+(define-function update-position (chess-engine position-string (ponder-move (maybe move)) debug-stream end)
   (with-chess-engine (input prompt)
       chess-engine
     (when ponder-move
       (setf (char position-string end) #\Space)
       (replace position-string ponder-move :start1 (1+ end)))
-    (run-command* position-string
-                  input
-                  :end (if ponder-move (+ end 5) end)
-                  :prompt prompt
-                  :debug-stream debug-stream)
+    (run-command position-string
+                 input
+                 prompt
+                 debug-stream
+                 (if ponder-move (+ end 5) end))
     (when ponder-move
       (fill position-string #\Nul :start end :end (+ end 5)))))
 
@@ -169,7 +167,9 @@
 (defun chess-engine-ponder-end (chess-engine success debug-stream debug-info)
   (with-chess-engine (input output name prompt)
       chess-engine
-    (run-command (if success "ponderhit" "stop") input prompt debug-stream)
+    (if success
+        (ponder-hit input prompt debug-stream)
+        (stop input prompt debug-stream))
     ;; Note: technically, the info is generated while it's pondering
     ;; and merely read here after stop
     (do ((line (read-line output nil :eof)
@@ -192,17 +192,17 @@
                                          debug-info)
   (let ((move nil)
         (new-ponder-move nil))
-    (chess-engine-update-position engine-active
-                                  position-string
-                                  nil
-                                  debug-stream
-                                  position-string-position)
+    (update-position engine-active
+                     position-string
+                     nil
+                     debug-stream
+                     position-string-position)
     (when ponder-move
-      (chess-engine-update-position engine-pondering
-                                    position-string
-                                    ponder-move
-                                    debug-stream
-                                    position-string-position)
+      (update-position engine-pondering
+                       position-string
+                       ponder-move
+                       debug-stream
+                       position-string-position)
       (with-chess-engine (input prompt)
           engine-pondering
         (go-ponder input prompt debug-stream)))
