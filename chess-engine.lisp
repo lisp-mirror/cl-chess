@@ -19,8 +19,6 @@
 
 (in-package #:chess-engine)
 
-;;; Chess engine (UCI)
-
 (deftype move ()
   `(simple-string 4))
 
@@ -197,8 +195,6 @@
         (when ponder-move
           (chess-engine-ponder-end name-pondering process-pondering (string= move ponder-move) prompt-pondering debug-stream debug-info))
         (values move new-ponder-move (string= move "CHECKMATE"))))))
-
-;;; Create the application
 
 (define-function (make-chess-gui :inline t) (width height script-function init-function &key fullscreen)
   (let ((settings (make-settings :title "CL Chess"
