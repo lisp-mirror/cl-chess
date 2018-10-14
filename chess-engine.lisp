@@ -140,8 +140,7 @@
            (if checkmate?
                (values "CHECKMATE" nil)
                (let ((ponder? (position #\Space line :start 9)))
-                 (when debug-stream
-                   (format debug-stream "~A : ~A~%" name line))
+                 (print-chess-engine-output name line debug-stream)
                  (values (subseq line 9 ponder?)
                          (if ponder?
                              (if (and (> (length line) (+ 8 ponder?))
@@ -176,8 +175,7 @@
                  (read-line chess-engine-output nil :eof)))
           ((or (eql :eof line)
                (and (>= (length line) 8) (string= "bestmove" line :start2 0 :end2 8)))
-           (when debug-stream
-             (format debug-stream "~A : ~A~%" name line)))
+           (print-chess-engine-output name line debug-stream))
         (let ((info? (and (>= (length line) 4) (string= "info" line :start2 0 :end2 4))))
           (unless (or (not debug-stream)
                       (and (not debug-info) info?))
@@ -314,13 +312,16 @@
                             (checkmate? nil))
                            ((or (>= half-turn (* 2 turns)) checkmate? (with-lock-held (status-lock) done?))
                             (quit-if-necessary status-lock engine-lock (if checkmate? :checkmate :out-of-turns))
-                            (when debug-stream
-                              (format debug-stream
-                                      "DEBUG : Final outcome: ~A~%"
-                                      (with-lock-held (status-lock)
-                                        done?))))
+                            (print-chess-engine-output "DEBUG"
+                                                       (format nil
+                                                               "Final outcome: ~A"
+                                                               (with-lock-held (status-lock)
+                                                                 done?))
+                                                       debug-stream))
                          (when (zerop (mod half-turn 2))
-                           (format debug-stream "DEBUG : Turn ~D~%" (1+ (ash half-turn -1))))
+                           (print-chess-engine-output "DEBUG"
+                                                      (format nil "Turn ~D" (1+ (ash half-turn -1)))
+                                                      debug-stream))
                          (with-lock-held (engine-lock)
                            (setf (values move ponder-move checkmate?)
                                  (chess-engine-half-turn (aref chess-engines (mod half-turn 2))
