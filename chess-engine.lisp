@@ -68,6 +68,12 @@
   (run-command "isready" input prompt debug-stream)
   (print-chess-engine-output name (read-line output) debug-stream))
 
+(define-function (go-ponder :inline t) (input prompt debug-stream)
+  (run-command "go ponder" input prompt debug-stream))
+
+(define-function (go-move :inline t) (seconds input prompt debug-stream)
+  (run-command (format nil "go movetime ~D000" seconds) input prompt debug-stream))
+
 (defun initialize-chess-engine (chess-engine threads &optional debug-stream)
   (with-chess-engine (process name prompt)
       chess-engine
@@ -114,7 +120,7 @@
 (defun chess-engine-move (engine-name chess-engine-process seconds &optional (prompt "> ") debug-stream debug-info)
   (let ((chess-engine-input (process-info-input chess-engine-process))
         (chess-engine-output (process-info-output chess-engine-process)))
-    (run-command (format nil "go movetime ~D000" seconds) chess-engine-input prompt debug-stream)
+    (go-move seconds chess-engine-input prompt debug-stream)
     (do ((line (read-line chess-engine-output nil :eof)
                (read-line chess-engine-output nil :eof))
          (checkmate? nil))
@@ -147,9 +153,6 @@
         (unless (or (not debug-stream)
                     (and (not debug-info) info?))
           (format debug-stream "~A : ~A~%" engine-name line))))))
-
-(defun chess-command-ponder-start (chess-engine-process &optional (prompt "> ") debug-stream)
-  (run-command "go ponder" (process-info-input chess-engine-process) prompt debug-stream))
 
 (defun chess-engine-ponder-end (engine-name chess-engine-process success &optional (prompt "> ") debug-stream debug-info)
   (let ((chess-engine-input (process-info-input chess-engine-process))
@@ -184,7 +187,7 @@
         (chess-engine-update-position process-active position-string :prompt prompt-active :debug-stream debug-stream :end position-string-position)
         (when ponder-move
           (chess-engine-update-position process-pondering position-string :ponder-move ponder-move :prompt prompt-pondering :debug-stream debug-stream :end position-string-position)
-          (chess-command-ponder-start process-pondering prompt-pondering debug-stream))
+          (go-ponder (process-info-input process-pondering) prompt-pondering debug-stream))
         (setf (values move new-ponder-move)
               (chess-engine-move name-active process-active seconds prompt-active debug-stream debug-info))
         (check-type move move)
