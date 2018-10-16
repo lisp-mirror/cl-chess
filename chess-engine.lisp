@@ -65,12 +65,30 @@
   (write-line command process-input :end end)
   (force-output process-input))
 
-(define-function (read-opening-message :inline t) (name output debug-stream)
-  (when debug-stream (format debug-stream "~A : " name))
-  (do ((char (read-char-no-hang output nil :eof)
-             (read-char-no-hang output nil :eof)))
-      ((or (null char) (eql :eof char)))
-    (when debug-stream (write-char char debug-stream))))
+(defmacro do-read-char ((char stream &key eof no-hang) &body body)
+  (let ((read-char (if no-hang 'read-char-no-hang 'read-char))
+        (end-condition `(eql ,eof ,char)))
+    `(do ((,char (,read-char ,stream nil ,eof)
+                 (,read-char ,stream nil ,eof)))
+         (,(if no-hang
+               `(or (null ,char) ,end-condition)
+               end-condition))
+         ,@body)))
+
+(define-function read-opening-message ((chess-engine chess-engine))
+  (with-chess-engine (output name debug) chess-engine
+    (when debug (format debug "~A : " name))
+    (do-read-char (char output :eof :eof :no-hang t)
+      (when debug (write-char char debug)))))
+
+(define-function chess-engine-leftover-output ((chess-engine chess-engine))
+  (with-chess-engine (output name debug) chess-engine
+    (let ((first? t))
+      (do-read-char (char output :eof :eof)
+        (when first?
+          (when debug (format debug "~A : " name))
+          (setf first? nil))
+        (when debug (write-char char debug))))))
 
 ;;; todo: kill process if uciok is never received
 (define-function (initialize-uci :inline t) (name input output prompt debug-stream)
@@ -110,19 +128,11 @@
 (defun initialize-chess-engine (chess-engine threads)
   (with-chess-engine (input output name prompt debug)
       chess-engine
-    (read-opening-message name output debug)
+    (read-opening-message chess-engine)
     (initialize-uci name input output prompt debug)
     (set-option "Threads" threads input prompt debug)
     (ready? name input output prompt debug)
     (new-game name input output prompt debug)))
-
-(define-function chess-engine-leftover-output ((chess-engine chess-engine))
-  (with-chess-engine (output name debug)
-      chess-engine
-    (do ((line (read-line output nil :eof)
-               (read-line output nil :eof)))
-        ((eql line :eof))
-      (print-chess-engine-output name line debug))))
 
 (define-function quit-chess-engine ((chess-engine chess-engine))
   (with-chess-engine (process input prompt debug)
@@ -145,11 +155,15 @@
                  input
                  prompt
                  debug
-                 (if ponder-move (+ end 5) end))
+                 (if ponder-move
+                     (+ end (if (promotion? ponder-move)
+                                +move-length+
+                                (1- +move-length+)))
+                     end))
     (when ponder-move
-      (fill position-string #\Nul :start end :end (+ end 5)))))
+      (fill position-string #\Nul :start end :end (+ end +move-length+)))))
 
-;;; todo: what is move when the move is a promotion? is it length 5?
+;;; todo: fix pondering
 (defun chess-engine-move (chess-engine seconds debug-info)
   (with-chess-engine (input output name prompt debug)
       chess-engine
@@ -161,10 +175,10 @@
              checkmate?
              (and (>= (length line) 8) (string= "bestmove" line :start2 0 :end2 8)))
          (if checkmate?
-             (values "CHECKMATE" nil)
+             (values :checkmate nil)
              (let ((ponder? (position #\Space line :start 9)))
                (print-chess-engine-output name line debug)
-               (values (subseq line 9 ponder?)
+               (values (replace (make-move) (subseq line 9 ponder?))
                        (if ponder?
                            (if (and (> (length line) (+ 8 ponder?))
                                     (string= "ponder " line :start2 (1+ ponder?) :end2 (+ 8 ponder?)))
@@ -186,6 +200,7 @@
                     (and (not debug-info) info?))
           (format debug "~A : ~A~%" name line))))))
 
+;;; todo: fixme
 (defun chess-engine-ponder-end (chess-engine success debug-info)
   (with-chess-engine (input output name prompt debug)
       chess-engine
@@ -221,13 +236,15 @@
         (go-ponder input prompt debug)))
     (setf (values move new-ponder-move)
           (chess-engine-move engine-active seconds debug-info))
-    (check-type move move)
-    (check-type new-ponder-move (maybe move) ponder-move)
+    ;; fixme: a hack until pondering is fixed
+    (setf new-ponder-move (replace (make-move) new-ponder-move))
+    (check-type move (or move (eql :checkmate)))
+    (check-type new-ponder-move (maybe move))
     (setf (char position-string position-string-position) #\Space)
-    (replace position-string move :start1 (1+ position-string-position) :end1 (+ 5 position-string-position))
+    (replace position-string move :start1 (1+ position-string-position))
     (when ponder-move
       (chess-engine-ponder-end engine-pondering (string= move ponder-move) debug-info))
-    (values move new-ponder-move (string= move "CHECKMATE"))))
+    (values move new-ponder-move (eql move :checkmate))))
 
 (define-function (make-chess-gui :inline t) (width height script-function init-function &key fullscreen)
   (let ((settings (make-settings :title "CL Chess"
@@ -272,6 +289,8 @@
 ;;;
 ;;; todo: Handle draws and other edge cases.
 ;;;
+;;; todo: restore the moves log, and somehow find a way to return it
+;;;
 ;;; Note: Having an infinite number of turns (i.e. -1 turns) is not
 ;;; recommended until the edge cases are handled, e.g. draws.
 (define-function (chess-engine :check-type t)
@@ -285,88 +304,91 @@
      (debug-info nil boolean)
      (width 1280 (integer 200))
      (height 720 (integer 200)))
-  (let* ((move-lock (make-lock))
-         (engine-lock (make-lock))
-         (status-lock (make-lock))
-         (mirror-match? (string= engine-name-1 engine-name-2))
-         (chess-engine-1 (make-chess-engine :process (launch-program engine-name-1 :input :stream :output :stream)
-                                            :name (if mirror-match? (concatenate 'string engine-name-1 "-1") engine-name-1)
-                                            :prompt "1 > "
-                                            :debug-stream debug-stream))
-         (chess-engine-2 (make-chess-engine :process (launch-program engine-name-2 :input :stream :output :stream)
-                                            :name (if mirror-match? (concatenate 'string engine-name-2 "-2") engine-name-2)
-                                            :prompt "2 > "
-                                            :debug-stream debug-stream))
-         (done? nil)
-         (current-move (make-string 4 :initial-element #\Nul)))
-    (flet ((quit-if-necessary (status-lock engine-lock final-status)
-             (with-lock-held (status-lock)
-               (unless done?
-                 (setf done? final-status)
-                 (with-lock-held (engine-lock)
-                   (quit-chess-engines chess-engine-1 chess-engine-2))))))
-      (make-thread (lambda ()
-                     (let ((threads (floor (1- threads) 2)))
-                       (initialize-chess-engine chess-engine-1 threads)
-                       (initialize-chess-engine chess-engine-2 threads))
-                     (let ((position-string-prefix "position startpos moves"))
-                       (do ((half-turn 0 (1+ half-turn))
-                            (board (make-board))
-                            (move nil)
-                            (moves (make-array 400 :fill-pointer 0))
-                            (ponder-move "e2e4")
-                            (chess-engines (vector chess-engine-1 chess-engine-2))
-                            (position-string (replace (make-array (+ (length position-string-prefix) (+ (* 400 +move-length+)
-                                                                                                        +possible-promotions+))
-                                                                  :element-type 'character
-                                                                  :initial-element #\Nul)
-                                                      position-string-prefix))
-                            (position-string-position (length position-string-prefix))
-                            (checkmate? nil))
-                           ((or (>= half-turn (* 2 turns)) checkmate? (with-lock-held (status-lock) done?))
-                            (quit-if-necessary status-lock engine-lock (if checkmate? :checkmate :out-of-turns))
-                            (print-chess-engine-output "DEBUG"
-                                                       (format nil
-                                                               "Final outcome: ~A"
-                                                               (with-lock-held (status-lock)
-                                                                 done?))
-                                                       debug-stream))
-                         (when (zerop (mod half-turn 2))
-                           (print-chess-engine-output "DEBUG"
-                                                      (format nil "Turn ~D" (1+ (ash half-turn -1)))
-                                                      debug-stream))
-                         (with-lock-held (engine-lock)
-                           (setf (values move ponder-move checkmate?)
-                                 (chess-engine-half-turn (aref chess-engines (mod half-turn 2))
-                                                         (aref chess-engines (mod (1+ half-turn) 2))
-                                                         position-string
-                                                         position-string-position
-                                                         ponder-move
-                                                         seconds
-                                                         debug-info)))
-                         (with-lock-held (move-lock)
-                           (replace current-move move))
-                         (vector-push move moves)
-                         (incf position-string-position
-                               (if (and move (promotion? move))
-                                   (1+ +move-length+)
-                                   +move-length+))
-                         (unless checkmate?
-                           (update-board board move))))))
-      (make-chess-gui width
-                      height
-                      (lambda (&key hud-ecs &allow-other-keys)
-                        (with-lock-held (move-lock)
-                          (unless (position #\Nul current-move)
-                            (update-visual-board hud-ecs current-move)
-                            (fill current-move #\Nul))))
-                      (lambda (&key ecs hud-ecs mesh-keys width height)
-                        (make-chess-graphics :ecs ecs
-                                             :hud-ecs hud-ecs
-                                             :mesh-keys mesh-keys
-                                             :width width
-                                             :height height)
-                        (values nil
-                                nil
-                                (lambda ()
-                                  (quit-if-necessary status-lock engine-lock :gui-quit))))))))
+  (let ((move-lock (make-lock))
+        (status-lock (make-lock))
+        (done? nil)
+        (current-move (make-move)))
+    (declare ((or boolean keyword) done?)
+             (move current-move))
+    (make-thread (lambda ()
+                   (let* ((mirror-match? (string= engine-name-1 engine-name-2))
+                          (chess-engine-1 (make-chess-engine :process (launch-program engine-name-1 :input :stream :output :stream)
+                                                             :name (if mirror-match? (concatenate 'string engine-name-1 "-1") engine-name-1)
+                                                             :prompt "1 > "
+                                                             :debug-stream debug-stream))
+                          (chess-engine-2 (make-chess-engine :process (launch-program engine-name-2 :input :stream :output :stream)
+                                                             :name (if mirror-match? (concatenate 'string engine-name-2 "-2") engine-name-2)
+                                                             :prompt "2 > "
+                                                             :debug-stream debug-stream)))
+                     (unwind-protect
+                          (progn
+                            (let ((threads (floor (1- threads) 2)))
+                              (initialize-chess-engine chess-engine-1 threads)
+                              (initialize-chess-engine chess-engine-2 threads))
+                            (let ((position-string-prefix "position startpos moves"))
+                              (do ((half-turn 0 (1+ half-turn))
+                                   (board (make-board))
+                                   (move nil)
+                                   (ponder-move (replace (make-move) "e2e4"))
+                                   (chess-engines (vector chess-engine-1 chess-engine-2))
+                                   (position-string (replace (make-array (+ (length position-string-prefix) (+ (* 400 +move-length+)
+                                                                                                               +possible-promotions+))
+                                                                         :element-type 'character
+                                                                         :initial-element #\Nul)
+                                                             position-string-prefix))
+                                   (position-string-position (length position-string-prefix))
+                                   (checkmate? nil))
+                                  ((with-lock-held (status-lock) done?))
+                                ;; fixme: no pondering until pondering is fixed
+                                (setf ponder-move nil)
+                                (when (zerop (mod half-turn 2))
+                                  (print-chess-engine-output "DEBUG"
+                                                             (format nil "Turn ~D" (1+ (ash half-turn -1)))
+                                                             debug-stream))
+                                (setf (values move ponder-move checkmate?)
+                                      (chess-engine-half-turn (aref chess-engines (mod half-turn 2))
+                                                              (aref chess-engines (mod (1+ half-turn) 2))
+                                                              position-string
+                                                              position-string-position
+                                                              ponder-move
+                                                              seconds
+                                                              debug-info))
+                                (with-lock-held (move-lock)
+                                  (replace current-move move))
+                                (incf position-string-position
+                                      (if (and move (promotion? move))
+                                          (1+ +move-length+)
+                                          +move-length+))
+                                (if checkmate?
+                                    (with-lock-held (status-lock)
+                                      (unless done?
+                                        (setf done? :checkmate)))
+                                    (update-board board move))
+                                (when (>= half-turn (* 2 turns))
+                                  (with-lock-held (status-lock)
+                                    (unless done?
+                                      (setf done? :out-of-turns)))))))
+                       (let ((outcome (with-lock-held (status-lock) done?)))
+                         (quit-chess-engines chess-engine-1 chess-engine-2)
+                         (print-chess-engine-output "DEBUG"
+                                                    (format nil "Final outcome: ~A" (if outcome outcome :crash))
+                                                    debug-stream))))))
+    (make-chess-gui width
+                    height
+                    (lambda (&key hud-ecs &allow-other-keys)
+                      (with-lock-held (move-lock)
+                        (unless (null-move? current-move)
+                          (update-visual-board hud-ecs current-move)
+                          (replace current-move #.(make-move)))))
+                    (lambda (&key ecs hud-ecs mesh-keys width height)
+                      (make-chess-graphics :ecs ecs
+                                           :hud-ecs hud-ecs
+                                           :mesh-keys mesh-keys
+                                           :width width
+                                           :height height)
+                      (values nil
+                              nil
+                              (lambda ()
+                                (with-lock-held (status-lock)
+                                  (unless done?
+                                    (setf done? :gui-quit)))))))))
