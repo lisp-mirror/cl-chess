@@ -263,73 +263,73 @@
 
 (define-accessor-macro with-game-status #.(symbol-name '#:game-status-))
 
-(define-function make-uci-client-thread ((game-status game-status)
-                                         (engine-name-1 string)
-                                         (engine-name-2 string)
-                                         (threads (integer 3 8192))
-                                         (turns (integer -1 200))
-                                         (seconds (integer 1))
-                                         (debug-stream (maybe stream))
-                                         (debug-info boolean))
-  (make-thread (lambda ()
-                 (with-game-status ((current-move move) done? move-lock status-lock)
-                     game-status
-                   (let* ((mirror-match? (string= engine-name-1 engine-name-2))
-                          (chess-engine-1 (make-chess-engine :process (launch-program engine-name-1 :input :stream :output :stream)
-                                                             :name (if mirror-match? (concatenate 'string engine-name-1 "-1") engine-name-1)
-                                                             :prompt "1 > "
-                                                             :debug-stream debug-stream))
-                          (chess-engine-2 (make-chess-engine :process (launch-program engine-name-2 :input :stream :output :stream)
-                                                             :name (if mirror-match? (concatenate 'string engine-name-2 "-2") engine-name-2)
-                                                             :prompt "2 > "
-                                                             :debug-stream debug-stream)))
-                     (unwind-protect
-                          (progn
-                            (let ((threads (1- threads)))
-                              (initialize-chess-engine chess-engine-1 threads)
-                              (initialize-chess-engine chess-engine-2 threads))
-                            (let ((position-string-prefix "position startpos moves"))
-                              (do ((half-turn 0 (1+ half-turn))
-                                   (board (make-board))
-                                   (move (make-move))
-                                   (chess-engines (vector chess-engine-1 chess-engine-2))
-                                   (position-string (replace (make-array (+ (length position-string-prefix) (+ (* 400 +move-length+)
-                                                                                                               +possible-promotions+))
-                                                                         :element-type 'character
-                                                                         :initial-element #\Nul)
-                                                             position-string-prefix))
-                                   (position-string-position (length position-string-prefix)))
-                                  ((with-lock-held (status-lock) done?))
-                                (when (zerop (mod half-turn 2))
-                                  (print-chess-engine-output "DEBUG"
-                                                             (format nil "Turn ~D" (1+ (ash half-turn -1)))
-                                                             debug-stream))
-                                (let ((checkmate? (chess-engine-half-turn (aref chess-engines (mod half-turn 2))
-                                                                          move
-                                                                          position-string
-                                                                          position-string-position
-                                                                          seconds
-                                                                          debug-info)))
-                                  (with-lock-held (move-lock)
-                                    (replace current-move move))
-                                  (incf position-string-position
-                                        (if (promotion? move)
-                                            (1+ +move-length+)
-                                            +move-length+))
-                                  (if checkmate?
-                                      (with-lock-held (status-lock)
-                                        (unless done?
-                                          (setf done? :checkmate)))
-                                      (update-board board move))
-                                  (when (>= (1+ half-turn) (* 2 turns))
-                                    (with-lock-held (status-lock)
-                                      (unless done?
-                                        (setf done? :out-of-turns))))))))
-                       (let ((outcome (with-lock-held (status-lock) done?)))
-                         (quit-chess-engines chess-engine-1 chess-engine-2)
-                         (print-chess-engine-output "DEBUG"
-                                                    (format nil "Final outcome: ~A" (if outcome outcome :crash))
-                                                    debug-stream))))))))
+(define-function make-uci-client ((game-status game-status)
+                                  (engine-name-1 string)
+                                  (engine-name-2 string)
+                                  (threads (integer 3 8192))
+                                  (turns (integer -1 200))
+                                  (seconds (integer 1))
+                                  (debug-stream (maybe stream))
+                                  (debug-info boolean))
+  (lambda ()
+    (with-game-status ((current-move move) done? move-lock status-lock)
+        game-status
+      (let* ((mirror-match? (string= engine-name-1 engine-name-2))
+             (chess-engine-1 (make-chess-engine :process (launch-program engine-name-1 :input :stream :output :stream)
+                                                :name (if mirror-match? (concatenate 'string engine-name-1 "-1") engine-name-1)
+                                                :prompt "1 > "
+                                                :debug-stream debug-stream))
+             (chess-engine-2 (make-chess-engine :process (launch-program engine-name-2 :input :stream :output :stream)
+                                                :name (if mirror-match? (concatenate 'string engine-name-2 "-2") engine-name-2)
+                                                :prompt "2 > "
+                                                :debug-stream debug-stream)))
+        (unwind-protect
+             (progn
+               (let ((threads (1- threads)))
+                 (initialize-chess-engine chess-engine-1 threads)
+                 (initialize-chess-engine chess-engine-2 threads))
+               (let ((position-string-prefix "position startpos moves"))
+                 (do ((half-turn 0 (1+ half-turn))
+                      (board (make-board))
+                      (move (make-move))
+                      (chess-engines (vector chess-engine-1 chess-engine-2))
+                      (position-string (replace (make-array (+ (length position-string-prefix) (+ (* 400 +move-length+)
+                                                                                                  +possible-promotions+))
+                                                            :element-type 'character
+                                                            :initial-element #\Nul)
+                                                position-string-prefix))
+                      (position-string-position (length position-string-prefix)))
+                     ((with-lock-held (status-lock) done?))
+                   (when (zerop (mod half-turn 2))
+                     (print-chess-engine-output "DEBUG"
+                                                (format nil "Turn ~D" (1+ (ash half-turn -1)))
+                                                debug-stream))
+                   (let ((checkmate? (chess-engine-half-turn (aref chess-engines (mod half-turn 2))
+                                                             move
+                                                             position-string
+                                                             position-string-position
+                                                             seconds
+                                                             debug-info)))
+                     (with-lock-held (move-lock)
+                       (replace current-move move))
+                     (incf position-string-position
+                           (if (promotion? move)
+                               (1+ +move-length+)
+                               +move-length+))
+                     (if checkmate?
+                         (with-lock-held (status-lock)
+                           (unless done?
+                             (setf done? :checkmate)))
+                         (update-board board move))
+                     (when (>= (1+ half-turn) (* 2 turns))
+                       (with-lock-held (status-lock)
+                         (unless done?
+                           (setf done? :out-of-turns))))))))
+          (let ((outcome (with-lock-held (status-lock) done?)))
+            (quit-chess-engines chess-engine-1 chess-engine-2)
+            (print-chess-engine-output "DEBUG"
+                                       (format nil "Final outcome: ~A" (if outcome outcome :crash))
+                                       debug-stream)))))))
 
 ;;; todo: Record moves in algebraic notation
 ;;;
@@ -356,14 +356,6 @@
      (width 1280 (integer 200))
      (height 720 (integer 200)))
   (let ((game-status (make-game-status)))
-    (make-uci-client-thread game-status
-                            engine-name-1
-                            engine-name-2
-                            threads
-                            turns
-                            seconds
-                            debug-stream
-                            debug-info)
     (make-chess-gui width
                     height
                     (lambda (&key hud-ecs &allow-other-keys)
@@ -373,6 +365,14 @@
                             (update-visual-board hud-ecs move)
                             (replace move #.(make-move))))))
                     (lambda (&key ecs hud-ecs mesh-keys width height)
+                      (make-thread (make-uci-client game-status
+                                                    engine-name-1
+                                                    engine-name-2
+                                                    threads
+                                                    turns
+                                                    seconds
+                                                    debug-stream
+                                                    debug-info))
                       (make-chess-graphics :ecs ecs
                                            :hud-ecs hud-ecs
                                            :mesh-keys mesh-keys
