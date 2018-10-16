@@ -163,7 +163,7 @@
     (when ponder-move
       (fill position-string #\Nul :start end :end (+ end +move-length+)))))
 
-;;; todo: fix pondering
+;;; todo: fix determining the value of pondering
 (defun chess-engine-move (chess-engine seconds debug-info)
   (with-chess-engine (input output name prompt debug)
       chess-engine
@@ -200,51 +200,20 @@
                     (and (not debug-info) info?))
           (format debug "~A : ~A~%" name line))))))
 
-;;; todo: fixme
-(defun chess-engine-ponder-end (chess-engine success debug-info)
-  (with-chess-engine (input output name prompt debug)
-      chess-engine
-    (if success
-        (ponder-hit input prompt debug)
-        (stop input prompt debug))
-    ;; Note: technically, the info is generated while it's pondering
-    ;; and merely read here after stop
-    (do ((line (read-line output nil :eof)
-               (read-line output nil :eof)))
-        ((or (eql :eof line)
-             (and (>= (length line) 8) (string= "bestmove" line :start2 0 :end2 8)))
-         (print-chess-engine-output name line debug))
-      (let ((info? (and (>= (length line) 4) (string= "info" line :start2 0 :end2 4))))
-        (unless (or (not debug)
-                    (and (not debug-info) info?))
-          (format debug "~A : ~A~%" name line))))))
-
 (define-function chess-engine-half-turn ((engine-active chess-engine)
-                                         (engine-pondering chess-engine)
+                                         (move move)
                                          position-string
                                          position-string-position
-                                         (ponder-move (maybe move))
                                          seconds
                                          debug-info)
-  (let ((move nil)
-        (new-ponder-move nil))
-    (update-position engine-active position-string nil position-string-position)
-    (when ponder-move
-      (update-position engine-pondering position-string ponder-move position-string-position)
-      (with-chess-engine (input prompt debug)
-          engine-pondering
-        (go-ponder input prompt debug)))
-    (setf (values move new-ponder-move)
-          (chess-engine-move engine-active seconds debug-info))
-    ;; fixme: a hack until pondering is fixed
-    (setf new-ponder-move (replace (make-move) new-ponder-move))
-    (check-type move (or move (eql :checkmate)))
-    (check-type new-ponder-move (maybe move))
+  (update-position engine-active position-string nil position-string-position)
+  (let ((move* (chess-engine-move engine-active seconds debug-info)))
+    (check-type move* (or move (eql :checkmate)))
+    (unless (eql move* :checkmate)
+      (replace move move*))
     (setf (char position-string position-string-position) #\Space)
     (replace position-string move :start1 (1+ position-string-position))
-    (when ponder-move
-      (chess-engine-ponder-end engine-pondering (string= move ponder-move) debug-info))
-    (values move new-ponder-move (eql move :checkmate))))
+    (eql move* :checkmate)))
 
 (define-function (make-chess-gui :inline t) (width height script-function init-function &key fullscreen)
   (let ((settings (make-settings :title "CL Chess"
@@ -291,6 +260,8 @@
 ;;;
 ;;; todo: restore the moves log, and somehow find a way to return it
 ;;;
+;;; todo: allow for pondering when playing against a human
+;;;
 ;;; Note: Having an infinite number of turns (i.e. -1 turns) is not
 ;;; recommended until the edge cases are handled, e.g. draws.
 (define-function (chess-engine :check-type t)
@@ -322,14 +293,13 @@
                                                              :debug-stream debug-stream)))
                      (unwind-protect
                           (progn
-                            (let ((threads (floor (1- threads) 2)))
+                            (let ((threads (1- threads)))
                               (initialize-chess-engine chess-engine-1 threads)
                               (initialize-chess-engine chess-engine-2 threads))
                             (let ((position-string-prefix "position startpos moves"))
                               (do ((half-turn 0 (1+ half-turn))
                                    (board (make-board))
                                    (move (make-move))
-                                   (ponder-move (replace (make-move) "e2e4"))
                                    (chess-engines (vector chess-engine-1 chess-engine-2))
                                    (position-string (replace (make-array (+ (length position-string-prefix) (+ (* 400 +move-length+)
                                                                                                                +possible-promotions+))
@@ -338,22 +308,16 @@
                                                              position-string-prefix))
                                    (position-string-position (length position-string-prefix)))
                                   ((with-lock-held (status-lock) done?))
-                                ;; fixme: no pondering until pondering is fixed
-                                (setf ponder-move nil)
                                 (when (zerop (mod half-turn 2))
                                   (print-chess-engine-output "DEBUG"
                                                              (format nil "Turn ~D" (1+ (ash half-turn -1)))
                                                              debug-stream))
-                                (multiple-value-bind (move* ponder-move* checkmate?)
-                                    (chess-engine-half-turn (aref chess-engines (mod half-turn 2))
-                                                            (aref chess-engines (mod (1+ half-turn) 2))
-                                                            position-string
-                                                            position-string-position
-                                                            ponder-move
-                                                            seconds
-                                                            debug-info)
-                                  (replace move move*)
-                                  (replace ponder-move ponder-move*)
+                                (let ((checkmate? (chess-engine-half-turn (aref chess-engines (mod half-turn 2))
+                                                                          move
+                                                                          position-string
+                                                                          position-string-position
+                                                                          seconds
+                                                                          debug-info)))
                                   (with-lock-held (move-lock)
                                     (replace current-move move))
                                   (incf position-string-position
