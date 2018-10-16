@@ -328,7 +328,7 @@
                             (let ((position-string-prefix "position startpos moves"))
                               (do ((half-turn 0 (1+ half-turn))
                                    (board (make-board))
-                                   (move nil)
+                                   (move (make-move))
                                    (ponder-move (replace (make-move) "e2e4"))
                                    (chess-engines (vector chess-engine-1 chess-engine-2))
                                    (position-string (replace (make-array (+ (length position-string-prefix) (+ (* 400 +move-length+)
@@ -336,8 +336,7 @@
                                                                          :element-type 'character
                                                                          :initial-element #\Nul)
                                                              position-string-prefix))
-                                   (position-string-position (length position-string-prefix))
-                                   (checkmate? nil))
+                                   (position-string-position (length position-string-prefix)))
                                   ((with-lock-held (status-lock) done?))
                                 ;; fixme: no pondering until pondering is fixed
                                 (setf ponder-move nil)
@@ -345,29 +344,31 @@
                                   (print-chess-engine-output "DEBUG"
                                                              (format nil "Turn ~D" (1+ (ash half-turn -1)))
                                                              debug-stream))
-                                (setf (values move ponder-move checkmate?)
-                                      (chess-engine-half-turn (aref chess-engines (mod half-turn 2))
-                                                              (aref chess-engines (mod (1+ half-turn) 2))
-                                                              position-string
-                                                              position-string-position
-                                                              ponder-move
-                                                              seconds
-                                                              debug-info))
-                                (with-lock-held (move-lock)
-                                  (replace current-move move))
-                                (incf position-string-position
-                                      (if (and move (promotion? move))
-                                          (1+ +move-length+)
-                                          +move-length+))
-                                (if checkmate?
+                                (multiple-value-bind (move* ponder-move* checkmate?)
+                                    (chess-engine-half-turn (aref chess-engines (mod half-turn 2))
+                                                            (aref chess-engines (mod (1+ half-turn) 2))
+                                                            position-string
+                                                            position-string-position
+                                                            ponder-move
+                                                            seconds
+                                                            debug-info)
+                                  (replace move move*)
+                                  (replace ponder-move ponder-move*)
+                                  (with-lock-held (move-lock)
+                                    (replace current-move move))
+                                  (incf position-string-position
+                                        (if (promotion? move)
+                                            (1+ +move-length+)
+                                            +move-length+))
+                                  (if checkmate?
+                                      (with-lock-held (status-lock)
+                                        (unless done?
+                                          (setf done? :checkmate)))
+                                      (update-board board move))
+                                  (when (>= (1+ half-turn) (* 2 turns))
                                     (with-lock-held (status-lock)
                                       (unless done?
-                                        (setf done? :checkmate)))
-                                    (update-board board move))
-                                (when (>= (1+ half-turn) (* 2 turns))
-                                  (with-lock-held (status-lock)
-                                    (unless done?
-                                      (setf done? :out-of-turns)))))))
+                                        (setf done? :out-of-turns))))))))
                        (let ((outcome (with-lock-held (status-lock) done?)))
                          (quit-chess-engines chess-engine-1 chess-engine-2)
                          (print-chess-engine-output "DEBUG"
