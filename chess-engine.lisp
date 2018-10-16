@@ -355,16 +355,17 @@
      (debug-info nil boolean)
      (width 1280 (integer 200))
      (height 720 (integer 200)))
-  (let ((game-status (make-game-status)))
-    (make-chess-gui width
-                    height
-                    (lambda (&key hud-ecs &allow-other-keys)
-                      (with-game-status (move move-lock) game-status
-                        (with-lock-held (move-lock)
-                          (unless (null-move? move)
-                            (update-visual-board hud-ecs move)
-                            (replace move #.(make-move))))))
-                    (lambda (&key ecs hud-ecs mesh-keys width height)
+  (make-chess-gui width
+                  height
+                  (lambda (&key hud-ecs state &allow-other-keys)
+                    (declare (game-status state))
+                    (with-game-status (move move-lock) state
+                      (with-lock-held (move-lock)
+                        (unless (null-move? move)
+                          (update-visual-board hud-ecs move)
+                          (replace move #.(make-move))))))
+                  (lambda (&key ecs hud-ecs mesh-keys width height)
+                    (let ((game-status (make-game-status)))
                       (make-thread (make-uci-client game-status
                                                     engine-name-1
                                                     engine-name-2
@@ -379,7 +380,7 @@
                                            :width width
                                            :height height)
                       (values nil
-                              nil
+                              game-status
                               (lambda ()
                                 (with-game-status (done? status-lock) game-status
                                   (with-lock-held (status-lock)
