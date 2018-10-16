@@ -4,6 +4,7 @@
         #:cl-chess/board
         #:cl-chess/graphics)
   (:import-from #:bordeaux-threads
+                #:lock
                 #:make-lock
                 #:with-lock-held
                 #:make-thread)
@@ -254,34 +255,25 @@
                           #'make-chess-graphics)
           moves))
 
-;;; todo: Record moves in algebraic notation
-;;;
-;;; todo: Handle draws and other edge cases.
-;;;
-;;; todo: restore the moves log, and somehow find a way to return it
-;;;
-;;; todo: allow for pondering when playing against a human
-;;;
-;;; Note: Having an infinite number of turns (i.e. -1 turns) is not
-;;; recommended until the edge cases are handled, e.g. draws.
-(define-function (chess-engine :check-type t)
-    (&key
-     (engine-name-1 "stockfish" string)
-     (engine-name-2 "stockfish" string)
-     (threads 8 (integer 3 8192))
-     (seconds 10 (integer 1))
-     (turns 3 (integer -1 200))
-     (debug-stream nil (or boolean stream))
-     (debug-info nil boolean)
-     (width 1280 (integer 200))
-     (height 720 (integer 200)))
-  (let ((move-lock (make-lock))
-        (status-lock (make-lock))
-        (done? nil)
-        (current-move (make-move)))
-    (declare ((or boolean keyword) done?)
-             (move current-move))
-    (make-thread (lambda ()
+(defstruct game-status
+  (move (make-move) :type move)
+  (done? nil :type (or boolean keyword))
+  (move-lock (make-lock) :type lock)
+  (status-lock (make-lock) :type lock))
+
+(define-accessor-macro with-game-status #.(symbol-name '#:game-status-))
+
+(define-function make-uci-client-thread ((game-status game-status)
+                                         (engine-name-1 string)
+                                         (engine-name-2 string)
+                                         (threads (integer 3 8192))
+                                         (turns (integer -1 200))
+                                         (seconds (integer 1))
+                                         (debug-stream (maybe stream))
+                                         (debug-info boolean))
+  (make-thread (lambda ()
+                 (with-game-status ((current-move move) done? move-lock status-lock)
+                     game-status
                    (let* ((mirror-match? (string= engine-name-1 engine-name-2))
                           (chess-engine-1 (make-chess-engine :process (launch-program engine-name-1 :input :stream :output :stream)
                                                              :name (if mirror-match? (concatenate 'string engine-name-1 "-1") engine-name-1)
@@ -337,14 +329,49 @@
                          (quit-chess-engines chess-engine-1 chess-engine-2)
                          (print-chess-engine-output "DEBUG"
                                                     (format nil "Final outcome: ~A" (if outcome outcome :crash))
-                                                    debug-stream))))))
+                                                    debug-stream))))))))
+
+;;; todo: Record moves in algebraic notation
+;;;
+;;; todo: Handle draws and other edge cases.
+;;;
+;;; todo: restore the moves log, and somehow find a way to return it
+;;;
+;;; todo: allow for pondering when playing against a human
+;;;
+;;; todo: replace the position history with a FEN board if there are
+;;; more than 200 turns
+;;;
+;;; Note: Having an infinite number of turns (i.e. -1 turns) is not
+;;; recommended until the edge cases are handled, e.g. draws.
+(define-function (chess-engine :check-type t)
+    (&key
+     (engine-name-1 "stockfish" string)
+     (engine-name-2 "stockfish" string)
+     (threads 8 (integer 3 8192))
+     (seconds 10 (integer 1))
+     (turns 3 (integer -1 200))
+     (debug-stream nil (maybe stream))
+     (debug-info nil boolean)
+     (width 1280 (integer 200))
+     (height 720 (integer 200)))
+  (let ((game-status (make-game-status)))
+    (make-uci-client-thread game-status
+                            engine-name-1
+                            engine-name-2
+                            threads
+                            turns
+                            seconds
+                            debug-stream
+                            debug-info)
     (make-chess-gui width
                     height
                     (lambda (&key hud-ecs &allow-other-keys)
-                      (with-lock-held (move-lock)
-                        (unless (null-move? current-move)
-                          (update-visual-board hud-ecs current-move)
-                          (replace current-move #.(make-move)))))
+                      (with-game-status (move move-lock) game-status
+                        (with-lock-held (move-lock)
+                          (unless (null-move? move)
+                            (update-visual-board hud-ecs move)
+                            (replace move #.(make-move))))))
                     (lambda (&key ecs hud-ecs mesh-keys width height)
                       (make-chess-graphics :ecs ecs
                                            :hud-ecs hud-ecs
@@ -354,6 +381,7 @@
                       (values nil
                               nil
                               (lambda ()
-                                (with-lock-held (status-lock)
-                                  (unless done?
-                                    (setf done? :gui-quit)))))))))
+                                (with-game-status (done? status-lock) game-status
+                                  (with-lock-held (status-lock)
+                                    (unless done?
+                                      (setf done? :gui-quit))))))))))
