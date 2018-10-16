@@ -19,22 +19,15 @@
 
 (in-package #:chess-engine)
 
-;; fixme
-;; move is length 4 or 5 with 5 being promotion
-;; 0000 is the null move
-;; Use \Nul when there is no promotion and resize all moves to 5
-;; 0000\Nul is then the null move
-;;
-;; that means for the position string the increment is 5 or 6
-;; depending on if there was a promotion or not
 (deftype move ()
-  `(simple-string 4))
+  `(simple-string 5))
 
-(defconstant +move-length+ 4)
+(defconstant +move-length+ 5)
 (defconstant +possible-promotions+ 16)
 
-(define-function (make-move :inline t) ()
-  (replace (make-string 5) "0000"))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (define-function (make-move :inline t) ()
+    (replace (make-string 5 :initial-element #\Nul) "0000")))
 
 (define-function (promotion? :inline t) (move)
   (not (char= (char move 4) #\Nul)))
@@ -323,15 +316,12 @@
                             (moves (make-array 400 :fill-pointer 0))
                             (ponder-move "e2e4")
                             (chess-engines (vector chess-engine-1 chess-engine-2))
-                            (position-string (replace (make-array (+ (length position-string-prefix) (+ (* 400 (1+ +move-length+))
+                            (position-string (replace (make-array (+ (length position-string-prefix) (+ (* 400 +move-length+)
                                                                                                         +possible-promotions+))
                                                                   :element-type 'character
                                                                   :initial-element #\Nul)
                                                       position-string-prefix))
-                            (position-string-position (length position-string-prefix)
-                                                      ;; fixme: this can't move forward a constant amount because
-                                                      ;; there may or may not be a promotion
-                                                      (+ (1+ +move-length+) position-string-position))
+                            (position-string-position (length position-string-prefix))
                             (checkmate? nil))
                            ((or (>= half-turn (* 2 turns)) checkmate? (with-lock-held (status-lock) done?))
                             (quit-if-necessary status-lock engine-lock (if checkmate? :checkmate :out-of-turns))
@@ -357,6 +347,10 @@
                          (with-lock-held (move-lock)
                            (replace current-move move))
                          (vector-push move moves)
+                         (incf position-string-position
+                               (if (and move (promotion? move))
+                                   (1+ +move-length+)
+                                   +move-length+))
                          (unless checkmate?
                            (update-board board move))))))
       (make-chess-gui width
