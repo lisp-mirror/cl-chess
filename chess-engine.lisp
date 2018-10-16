@@ -364,7 +364,7 @@
                                       (unless done?
                                         (setf done? :checkmate)))
                                     (update-board board move))
-                                (when (>= half-turn (* 2 turns))
+                                (when (>= (1+ half-turn) (* 2 turns))
                                   (with-lock-held (status-lock)
                                     (unless done?
                                       (setf done? :out-of-turns)))))))
