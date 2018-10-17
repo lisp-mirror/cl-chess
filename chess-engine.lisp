@@ -164,6 +164,18 @@
     (when ponder-move
       (fill position-string #\Nul :start end :end (+ end +move-length+)))))
 
+(defmacro do-space-separated-line ((line word start-position end-position) &body body)
+  `(loop :for ,start-position :of-type (maybe fixnum) := 0
+           :then (if ,end-position (1+ ,end-position) nil)
+         :for ,end-position :of-type (maybe fixnum)
+           := (if (null ,start-position)
+                  nil
+                  (position #\Space ,line :start ,start-position))
+         :for ,word :of-type fixnum :from 0
+         :until (null ,start-position)
+         :do
+            (progn ,@body)))
+
 ;;; todo: fix determining the value of pondering
 (defun chess-engine-move (chess-engine seconds debug-info)
   (with-chess-engine (input output name prompt debug)
@@ -178,6 +190,12 @@
          (if checkmate?
              (values :checkmate nil)
              (let ((ponder? (position #\Space line :start 9)))
+               (do-space-separated-line (line word start end)
+                 (case= word
+                   (0 (format debug "~S~%" (string= line "bestmove" :start1 start :end1 end)))
+                   (1 (format debug "~S~%" (subseq line start end)))
+                   (2 (format debug "~S~%" (string= line "ponder" :start1 start :end1 end)))
+                   (3 (format debug "~S~%" (subseq line start end)))))
                (print-chess-engine-output name line debug)
                (values (replace (make-move) (subseq line 9 ponder?))
                        (if ponder?
