@@ -176,7 +176,6 @@
          :do
             (progn ,@body)))
 
-;;; todo: fix determining the value of pondering
 (defun chess-engine-move (chess-engine seconds debug-info)
   (with-chess-engine (input output name prompt debug)
       chess-engine
@@ -189,21 +188,22 @@
              (and (>= (length line) 8) (string= "bestmove" line :start2 0 :end2 8)))
          (if checkmate?
              (values :checkmate nil)
-             (let ((ponder? (position #\Space line :start 9)))
+             (let ((best-move? nil)
+                   (ponder? nil))
+               (declare ((or boolean move) best-move? ponder?))
                (do-space-separated-line (line word start end)
                  (case= word
-                   (0 (format debug "~S~%" (string= line "bestmove" :start1 start :end1 end)))
-                   (1 (format debug "~S~%" (subseq line start end)))
-                   (2 (format debug "~S~%" (string= line "ponder" :start1 start :end1 end)))
-                   (3 (format debug "~S~%" (subseq line start end)))))
+                   (0 (setf best-move? (string= line "bestmove" :start1 start :end1 end)))
+                   (1 (when best-move?
+                        (setf best-move? (replace (make-move) (subseq line start end)))))
+                   (2 (setf ponder? (string= line "ponder" :start1 start :end1 end)))
+                   (3 (when ponder?
+                        (setf ponder? (replace (make-move) (subseq line start end)))))))
+               (if (or (eql t best-move?)
+                       (eql t ponder?))
+                   (error "Syntax error in UCI line: ~A~%" line))
                (print-chess-engine-output name line debug)
-               (values (replace (make-move) (subseq line 9 ponder?))
-                       (if ponder?
-                           (if (and (> (length line) (+ 8 ponder?))
-                                    (string= "ponder " line :start2 (1+ ponder?) :end2 (+ 8 ponder?)))
-                               (subseq line (+ 8 ponder?))
-                               (error "Invalid syntax in line: ~A" line))
-                           nil)))))
+               (values best-move? ponder?))))
       (let ((info? (and (>= (length line) 4) (string= "info" line :start2 0 :end2 4))))
         (when info?
           (let ((mate? (search "mate " line)))
