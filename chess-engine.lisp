@@ -204,19 +204,26 @@
                    (error "Syntax error in UCI line: ~A~%" line))
                (print-chess-engine-output name line debug)
                (values best-move? ponder?))))
-      (let ((info? (and (>= (length line) 4) (string= "info" line :start2 0 :end2 4))))
-        (when info?
-          (let ((mate? (search "mate " line)))
-            (when mate?
-              (let* ((number-start (+ 5 mate?))
-                     (number-end (position #\Space line :start number-start))
-                     (mate-number (if number-end
-                                      (parse-integer line :start number-start :end number-end)
-                                      (parse-integer line :start number-start))))
-                (when (<= mate-number 0)
-                  (setf checkmate? t))))))
-        (unless (or (not debug)
-                    (and (not debug-info) info?))
+      (let ((line-type nil))
+        (declare ((maybe keyword) line-type))
+        (do-space-separated-line (line word start end)
+          (if (zerop word)
+              (cond ((string= line "info" :start1 start :end1 end)
+                     (setf line-type :info))
+                    ((string= line "bestmove" :start1 start :end1 end)
+                     (setf line-type :best-move)))
+              (case line-type
+                (:info
+                 (let ((mate? (search "mate" line)))
+                   (when mate?
+                     (let* ((number-start (+ 5 mate?))
+                            (number-end (position #\Space line :start number-start))
+                            (mate-number (if number-end
+                                             (parse-integer line :start number-start :end number-end)
+                                             (parse-integer line :start number-start))))
+                       (when (<= mate-number 0)
+                         (setf checkmate? t)))))))))
+        (unless (or (not debug) (and (not debug-info) (eql :info line-type)))
           (format debug "~A : ~A~%" name line))))))
 
 (define-function chess-engine-half-turn ((engine-active chess-engine)
