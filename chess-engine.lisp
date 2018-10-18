@@ -21,6 +21,8 @@
 
 (in-package #:chess-engine)
 
+;;; Moves
+
 (deftype move ()
   `(simple-string 5))
 
@@ -36,6 +38,28 @@
 
 (define-function (null-move? :inline t) (move)
   (string= #.(make-move) move))
+
+;;; Position string
+
+(defconstant +position-string-prefix-length+ (length "position startpos moves"))
+(defconstant +position-string-length+ (+ +position-string-prefix-length+
+                                         +possible-promotions+
+                                         (* 400 +move-length+)))
+
+(deftype position-string ()
+  `(simple-string ,+position-string-length+))
+
+(define-function (make-position-string :inline t) ()
+  (replace (make-string +position-string-length+ :initial-element #\Nul)
+           "position startpos moves"))
+
+(defstruct position-string-and-position
+  (string (make-position-string) :type position-string)
+  (position +position-string-prefix-length+ :type fixnum))
+
+(define-accessor-macro with-position-string-and-position #.(symbol-name '#:position-string-and-position-))
+
+;;; Chess engine
 
 (defstruct (chess-engine (:constructor %make-chess-engine))
   (process    nil :type process-info :read-only t)
@@ -60,6 +84,8 @@
 (define-function (print-chess-engine-output :inline t) (name line debug-stream)
   (when debug-stream
     (format debug-stream "~A : ~A~%" name line)))
+
+;;; UCI
 
 (defun run-command (command process-input &optional (prompt "> ") debug-stream end)
   (when debug-stream
@@ -229,19 +255,21 @@
 
 (define-function chess-engine-half-turn ((engine-active chess-engine)
                                          (move move)
-                                         position-string
-                                         position-string-position
+                                         (position-string position-string-and-position)
                                          seconds)
-  (update-position engine-active position-string nil position-string-position)
-  (multiple-value-bind (move* ponder) (chess-engine-move engine-active seconds)
-    (declare ((or move (eql :checkmate)) move*)
-             ((maybe move) ponder))
-    (declare (ignore ponder))
-    (unless (eql move* :checkmate)
-      (replace move move*))
-    (setf (char position-string position-string-position) #\Space)
-    (replace position-string move :start1 (1+ position-string-position))
-    (eql move* :checkmate)))
+  (with-position-string-and-position (string position) position-string
+    (update-position engine-active string nil position)
+    (multiple-value-bind (move* ponder) (chess-engine-move engine-active seconds)
+      (declare ((or move (eql :checkmate)) move*)
+               ((maybe move) ponder))
+      (declare (ignore ponder))
+      (unless (eql move* :checkmate)
+        (replace move move*))
+      (setf (char string position) #\Space)
+      (replace string move :start1 (1+ position))
+      (incf position
+            (if (promotion? move) (1+ +move-length+) +move-length+))
+      (eql move* :checkmate))))
 
 (define-function (make-chess-gui :inline t) (width height script-function init-function &key fullscreen)
   (let ((settings (make-settings :title "CL Chess"
@@ -290,22 +318,6 @@
 
 (define-accessor-macro with-game-status #.(symbol-name '#:game-status-))
 
-(defconstant +position-string-prefix-length+ (length "position startpos moves"))
-(defconstant +position-string-length+ (+ +position-string-prefix-length+
-                                         +possible-promotions+
-                                         (* 400 +move-length+)))
-
-(deftype position-string ()
-  `(simple-string ,+position-string-length+))
-
-(define-function (make-position-string :inline t) ()
-  (replace (make-string +position-string-length+ :initial-element #\Nul)
-           "position startpos moves"))
-
-(defstruct position-string-and-position
-  (position-string (make-position-string) :type position-string)
-  (position-string-position +position-string-prefix-length+ :type fixnum))
-
 (define-function make-uci-client ((game-status game-status)
                                   (engine-name-1 string)
                                   (engine-name-2 string)
@@ -334,8 +346,7 @@
                   (board (make-board))
                   (move (make-move))
                   (chess-engines (vector chess-engine-1 chess-engine-2))
-                  (position-string (make-position-string))
-                  (position-string-position +position-string-prefix-length+))
+                  (position-string-and-position (make-position-string-and-position)))
                  ((with-lock-held (status-lock) done?))
                (when (zerop (mod half-turn 2))
                  (print-chess-engine-output "DEBUG"
@@ -343,15 +354,10 @@
                                             debug-stream))
                (let ((checkmate? (chess-engine-half-turn (aref chess-engines (mod half-turn 2))
                                                          move
-                                                         position-string
-                                                         position-string-position
+                                                         position-string-and-position
                                                          seconds)))
                  (with-lock-held (move-lock)
                    (replace current-move move))
-                 (incf position-string-position
-                       (if (promotion? move)
-                           (1+ +move-length+)
-                           +move-length+))
                  (if checkmate?
                      (with-lock-held (status-lock)
                        (unless done?
