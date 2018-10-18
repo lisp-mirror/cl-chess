@@ -196,29 +196,26 @@
              (values best-move? ponder?)))
       (declare ((or boolean move) best-move? ponder?)
                ((maybe keyword) line-type checkmate?))
-      (do-space-separated-line (line word start end)
-        (if (zerop word)
-            (cond ((string= line "info" :start1 start :end1 end)
-                   (setf line-type :info))
-                  ((string= line "bestmove" :start1 start :end1 end)
-                   (setf line-type :best-move
-                         best-move? t)))
-            (case line-type
-              (:best-move
-               (case= word
-                 (1 (setf best-move? (replace (make-move) line :start2 start :end2 end)))
-                 (2 (setf ponder? (string= line "ponder" :start1 start :end1 end)))
-                 (3 (when ponder? (setf ponder? (replace (make-move) line :start2 start :end2 end))))))
-              (:info
-               (let ((mate? (search "mate " line)))
-                 (when mate?
-                   (let* ((number-start (+ 5 mate?))
-                          (number-end (position #\Space line :start number-start))
-                          (mate-number (if number-end
-                                           (parse-integer line :start number-start :end number-end)
-                                           (parse-integer line :start number-start))))
-                     (when (<= mate-number 0)
-                       (setf checkmate? t)))))))))
+      (let ((mate? nil))
+        (do-space-separated-line (line word start end)
+          (if (zerop word)
+              (cond ((string= line "info" :start1 start :end1 end)
+                     (setf line-type :info))
+                    ((string= line "bestmove" :start1 start :end1 end)
+                     (setf line-type :best-move
+                           best-move? t)))
+              (case line-type
+                (:best-move
+                 (case= word
+                   (1 (setf best-move? (replace (make-move) line :start2 start :end2 end)))
+                   (2 (setf ponder? (string= line "ponder" :start1 start :end1 end)))
+                   (3 (when ponder? (setf ponder? (replace (make-move) line :start2 start :end2 end))))))
+                (:info
+                 (if mate?
+                     (when (<= (parse-integer line :start start :end end) 0)
+                       (setf checkmate? t
+                             mate? nil))
+                     (setf mate? (string= line "mate" :start1 start :end1 end))))))))
       (when (or (eql t best-move?) (eql t ponder?))
         (error "Syntax error in UCI line: ~A~%" line))
       (unless (and (not debug-info) (eql :info line-type))
