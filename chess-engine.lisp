@@ -10,6 +10,7 @@
                 #:make-thread)
   (:import-from #:uiop
                 #:launch-program
+                #:process-alive-p
                 #:process-info-input
                 #:process-info-output
                 #:wait-process)
@@ -143,8 +144,10 @@
     (chess-engine-leftover-output chess-engine)))
 
 (define-function quit-chess-engines ((chess-engine-1 chess-engine) (chess-engine-2 chess-engine))
-  (quit-chess-engine chess-engine-1)
-  (quit-chess-engine chess-engine-2))
+  (when (process-alive-p (chess-engine-process chess-engine-1))
+    (quit-chess-engine chess-engine-1))
+  (when (process-alive-p (chess-engine-process chess-engine-2))
+    (quit-chess-engine chess-engine-2)))
 
 (define-function update-position (chess-engine position-string (ponder-move (maybe move)) end)
   (with-chess-engine (input prompt debug)
@@ -181,50 +184,45 @@
       chess-engine
     (go-move seconds input prompt debug)
     (do ((line (read-line output nil :eof)
-               (read-line output nil :eof))
-         (checkmate? nil))
-        ((or (eql :eof line)
-             checkmate?
-             (and (>= (length line) 8) (string= "bestmove" line :start2 0 :end2 8)))
+               (unless (or best-move? checkmate? (eql :eof line))
+                 (read-line output nil :eof)))
+         (line-type nil nil)
+         (checkmate? nil)
+         (best-move? nil)
+         (ponder? nil))
+        ((or best-move? checkmate? (eql :eof line))
          (if checkmate?
              (values :checkmate nil)
-             (let ((best-move? nil)
-                   (ponder? nil))
-               (declare ((or boolean move) best-move? ponder?))
-               (do-space-separated-line (line word start end)
-                 (case= word
-                   (0 (setf best-move? (string= line "bestmove" :start1 start :end1 end)))
-                   (1 (when best-move?
-                        (setf best-move? (replace (make-move) (subseq line start end)))))
-                   (2 (setf ponder? (string= line "ponder" :start1 start :end1 end)))
-                   (3 (when ponder?
-                        (setf ponder? (replace (make-move) (subseq line start end)))))))
-               (if (or (eql t best-move?)
-                       (eql t ponder?))
-                   (error "Syntax error in UCI line: ~A~%" line))
-               (print-chess-engine-output name line debug)
-               (values best-move? ponder?))))
-      (let ((line-type nil))
-        (declare ((maybe keyword) line-type))
-        (do-space-separated-line (line word start end)
-          (if (zerop word)
-              (cond ((string= line "info" :start1 start :end1 end)
-                     (setf line-type :info))
-                    ((string= line "bestmove" :start1 start :end1 end)
-                     (setf line-type :best-move)))
-              (case line-type
-                (:info
-                 (let ((mate? (search "mate" line)))
-                   (when mate?
-                     (let* ((number-start (+ 5 mate?))
-                            (number-end (position #\Space line :start number-start))
-                            (mate-number (if number-end
-                                             (parse-integer line :start number-start :end number-end)
-                                             (parse-integer line :start number-start))))
-                       (when (<= mate-number 0)
-                         (setf checkmate? t)))))))))
-        (unless (or (not debug) (and (not debug-info) (eql :info line-type)))
-          (format debug "~A : ~A~%" name line))))))
+             (values best-move? ponder?)))
+      (declare ((or boolean move) best-move? ponder?)
+               ((maybe keyword) line-type checkmate?))
+      (do-space-separated-line (line word start end)
+        (if (zerop word)
+            (cond ((string= line "info" :start1 start :end1 end)
+                   (setf line-type :info))
+                  ((string= line "bestmove" :start1 start :end1 end)
+                   (setf line-type :best-move
+                         best-move? t)))
+            (case line-type
+              (:best-move
+               (case= word
+                 (1 (setf best-move? (replace (make-move) line :start2 start :end2 end)))
+                 (2 (setf ponder? (string= line "ponder" :start1 start :end1 end)))
+                 (3 (when ponder? (setf ponder? (replace (make-move) line :start2 start :end2 end))))))
+              (:info
+               (let ((mate? (search "mate " line)))
+                 (when mate?
+                   (let* ((number-start (+ 5 mate?))
+                          (number-end (position #\Space line :start number-start))
+                          (mate-number (if number-end
+                                           (parse-integer line :start number-start :end number-end)
+                                           (parse-integer line :start number-start))))
+                     (when (<= mate-number 0)
+                       (setf checkmate? t)))))))))
+      (when (or (eql t best-move?) (eql t ponder?))
+        (error "Syntax error in UCI line: ~A~%" line))
+      (unless (and (not debug-info) (eql :info line-type))
+        (print-chess-engine-output name line debug)))))
 
 (define-function chess-engine-half-turn ((engine-active chess-engine)
                                          (move move)
@@ -234,6 +232,7 @@
                                          debug-info)
   (update-position engine-active position-string nil position-string-position)
   (let ((move* (chess-engine-move engine-active seconds debug-info)))
+    (format (chess-engine-debug engine-active) "Yo.%")
     (check-type move* (or move (eql :checkmate)))
     (unless (eql move* :checkmate)
       (replace move move*))
