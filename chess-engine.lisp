@@ -318,6 +318,26 @@
 
 (define-accessor-macro with-game-status #.(symbol-name '#:game-status-))
 
+(define-function (make-chess-engine-pair :inline t) (engine-name-1 engine-name-2 debug-stream debug-info)
+  (let ((mirror-match? (string= engine-name-1 engine-name-2)))
+    (values (make-chess-engine :process (launch-program engine-name-1 :input :stream :output :stream)
+                               :name (if mirror-match? (concatenate 'string engine-name-1 "-1") engine-name-1)
+                               :prompt "1 > "
+                               :debug-stream debug-stream
+                               :debug-info debug-info)
+            (make-chess-engine :process (launch-program engine-name-2 :input :stream :output :stream)
+                               :name (if mirror-match? (concatenate 'string engine-name-2 "-2") engine-name-2)
+                               :prompt "2 > "
+                               :debug-stream debug-stream
+                               :debug-info debug-info))))
+
+(define-function print-turn ((half-turn (integer 0 400))
+                             (debug-stream (maybe stream)))
+  (when (zerop (mod half-turn 2))
+    (print-chess-engine-output "DEBUG"
+                               (format nil "Turn ~D" (1+ (ash half-turn -1)))
+                               debug-stream)))
+
 (define-function make-uci-client ((game-status game-status)
                                   (engine-name-1 string)
                                   (engine-name-2 string)
@@ -329,17 +349,8 @@
   (lambda ()
     (with-game-status ((current-move move) done? move-lock status-lock)
         game-status
-      (let* ((mirror-match? (string= engine-name-1 engine-name-2))
-             (chess-engine-1 (make-chess-engine :process (launch-program engine-name-1 :input :stream :output :stream)
-                                                :name (if mirror-match? (concatenate 'string engine-name-1 "-1") engine-name-1)
-                                                :prompt "1 > "
-                                                :debug-stream debug-stream
-                                                :debug-info debug-info))
-             (chess-engine-2 (make-chess-engine :process (launch-program engine-name-2 :input :stream :output :stream)
-                                                :name (if mirror-match? (concatenate 'string engine-name-2 "-2") engine-name-2)
-                                                :prompt "2 > "
-                                                :debug-stream debug-stream
-                                                :debug-info debug-info)))
+      (multiple-value-bind (chess-engine-1 chess-engine-2)
+          (make-chess-engine-pair engine-name-1 engine-name-2 debug-stream debug-info)
         (initialize-chess-engines chess-engine-1 chess-engine-2 threads)
         (unwind-protect
              (do ((half-turn 0 (1+ half-turn))
@@ -348,10 +359,7 @@
                   (chess-engines (vector chess-engine-1 chess-engine-2))
                   (position-string-and-position (make-position-string-and-position)))
                  ((with-lock-held (status-lock) done?))
-               (when (zerop (mod half-turn 2))
-                 (print-chess-engine-output "DEBUG"
-                                            (format nil "Turn ~D" (1+ (ash half-turn -1)))
-                                            debug-stream))
+               (print-turn half-turn debug-stream)
                (let ((checkmate? (chess-engine-half-turn (aref chess-engines (mod half-turn 2))
                                                          move
                                                          position-string-and-position
