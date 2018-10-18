@@ -290,6 +290,22 @@
 
 (define-accessor-macro with-game-status #.(symbol-name '#:game-status-))
 
+(defconstant +position-string-prefix-length+ (length "position startpos moves"))
+(defconstant +position-string-length+ (+ +position-string-prefix-length+
+                                         +possible-promotions+
+                                         (* 400 +move-length+)))
+
+(deftype position-string ()
+  `(simple-string ,+position-string-length+))
+
+(define-function (make-position-string :inline t) ()
+  (replace (make-string +position-string-length+ :initial-element #\Nul)
+           "position startpos moves"))
+
+(defstruct position-string-and-position
+  (position-string (make-position-string) :type position-string)
+  (position-string-position +position-string-prefix-length+ :type fixnum))
+
 (define-function make-uci-client ((game-status game-status)
                                   (engine-name-1 string)
                                   (engine-name-2 string)
@@ -312,45 +328,39 @@
                                                 :prompt "2 > "
                                                 :debug-stream debug-stream
                                                 :debug-info debug-info)))
+        (initialize-chess-engines chess-engine-1 chess-engine-2 threads)
         (unwind-protect
-             (progn
-               (initialize-chess-engines chess-engine-1 chess-engine-2 threads)
-               (let ((position-string-prefix "position startpos moves"))
-                 (do ((half-turn 0 (1+ half-turn))
-                      (board (make-board))
-                      (move (make-move))
-                      (chess-engines (vector chess-engine-1 chess-engine-2))
-                      (position-string (replace (make-array (+ (length position-string-prefix) (+ (* 400 +move-length+)
-                                                                                                  +possible-promotions+))
-                                                            :element-type 'character
-                                                            :initial-element #\Nul)
-                                                position-string-prefix))
-                      (position-string-position (length position-string-prefix)))
-                     ((with-lock-held (status-lock) done?))
-                   (when (zerop (mod half-turn 2))
-                     (print-chess-engine-output "DEBUG"
-                                                (format nil "Turn ~D" (1+ (ash half-turn -1)))
-                                                debug-stream))
-                   (let ((checkmate? (chess-engine-half-turn (aref chess-engines (mod half-turn 2))
-                                                             move
-                                                             position-string
-                                                             position-string-position
-                                                             seconds)))
-                     (with-lock-held (move-lock)
-                       (replace current-move move))
-                     (incf position-string-position
-                           (if (promotion? move)
-                               (1+ +move-length+)
-                               +move-length+))
-                     (if checkmate?
-                         (with-lock-held (status-lock)
-                           (unless done?
-                             (setf done? :checkmate)))
-                         (update-board board move))
-                     (when (>= (1+ half-turn) (* 2 turns))
-                       (with-lock-held (status-lock)
-                         (unless done?
-                           (setf done? :out-of-turns))))))))
+             (do ((half-turn 0 (1+ half-turn))
+                  (board (make-board))
+                  (move (make-move))
+                  (chess-engines (vector chess-engine-1 chess-engine-2))
+                  (position-string (make-position-string))
+                  (position-string-position +position-string-prefix-length+))
+                 ((with-lock-held (status-lock) done?))
+               (when (zerop (mod half-turn 2))
+                 (print-chess-engine-output "DEBUG"
+                                            (format nil "Turn ~D" (1+ (ash half-turn -1)))
+                                            debug-stream))
+               (let ((checkmate? (chess-engine-half-turn (aref chess-engines (mod half-turn 2))
+                                                         move
+                                                         position-string
+                                                         position-string-position
+                                                         seconds)))
+                 (with-lock-held (move-lock)
+                   (replace current-move move))
+                 (incf position-string-position
+                       (if (promotion? move)
+                           (1+ +move-length+)
+                           +move-length+))
+                 (if checkmate?
+                     (with-lock-held (status-lock)
+                       (unless done?
+                         (setf done? :checkmate)))
+                     (update-board board move))
+                 (when (>= (1+ half-turn) (* 2 turns))
+                   (with-lock-held (status-lock)
+                     (unless done?
+                       (setf done? :out-of-turns))))))
           (let ((outcome (with-lock-held (status-lock) done?)))
             (quit-chess-engines chess-engine-1 chess-engine-2)
             (print-chess-engine-output "DEBUG"
