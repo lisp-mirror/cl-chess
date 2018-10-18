@@ -358,15 +358,11 @@
                                                          seconds)))
                  (with-lock-held (move-lock)
                    (replace current-move move))
-                 (if checkmate?
-                     (with-lock-held (status-lock)
-                       (unless done?
-                         (setf done? :checkmate)))
-                     (update-board board move))
-                 (when (>= (1+ half-turn) (* 2 turns))
-                   (with-lock-held (status-lock)
-                     (unless done?
-                       (setf done? :out-of-turns))))))
+                 (with-lock-held (status-lock)
+                   (cond (done? nil)
+                         (checkmate? (setf done? :checkmate))
+                         ((>= (1+ half-turn) (* 2 turns)) (setf done? :out-of-turns))))
+                 (unless checkmate? (update-board board move))))
           (let ((outcome (with-lock-held (status-lock) done?)))
             (quit-chess-engines chess-engine-1 chess-engine-2)
             (print-chess-engine-output "DEBUG"
