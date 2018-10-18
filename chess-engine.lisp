@@ -38,18 +38,20 @@
   (string= #.(make-move) move))
 
 (defstruct (chess-engine (:constructor %make-chess-engine))
-  (process nil :type process-info :read-only t)
-  (input   nil :type stream       :read-only t)
-  (output  nil :type stream       :read-only t)
-  (debug   nil :type (maybe stream))
-  (name    nil :type string       :read-only t)
-  (prompt  nil :type string       :read-only t))
+  (process    nil :type process-info :read-only t)
+  (input      nil :type stream       :read-only t)
+  (output     nil :type stream       :read-only t)
+  (debug      nil :type (maybe stream))
+  (debug-info nil :type boolean)
+  (name       nil :type string       :read-only t)
+  (prompt     nil :type string       :read-only t))
 
-(define-function (make-chess-engine :inline t) (&key process name prompt debug-stream)
+(define-function (make-chess-engine :inline t) (&key process name prompt debug-stream debug-info)
   (%make-chess-engine :process process
                       :input (process-info-input process)
                       :output (process-info-output process)
                       :debug debug-stream
+                      :debug-info debug-info
                       :name name
                       :prompt prompt))
 
@@ -136,6 +138,10 @@
     (ready? name input output prompt debug)
     (new-game name input output prompt debug)))
 
+(define-function initialize-chess-engines ((chess-engine-1 chess-engine) (chess-engine-2 chess-engine) threads)
+  (initialize-chess-engine chess-engine-1 threads)
+  (initialize-chess-engine chess-engine-2 threads))
+
 (define-function quit-chess-engine ((chess-engine chess-engine))
   (with-chess-engine (process input prompt debug)
       chess-engine
@@ -179,8 +185,8 @@
          :do
             (progn ,@body)))
 
-(defun chess-engine-move (chess-engine seconds debug-info)
-  (with-chess-engine (input output name prompt debug)
+(defun chess-engine-move (chess-engine seconds)
+  (with-chess-engine (input output name prompt debug debug-info)
       chess-engine
     (go-move seconds input prompt debug)
     (do ((line (read-line output nil :eof)
@@ -225,12 +231,12 @@
                                          (move move)
                                          position-string
                                          position-string-position
-                                         seconds
-                                         debug-info)
+                                         seconds)
   (update-position engine-active position-string nil position-string-position)
-  (let ((move* (chess-engine-move engine-active seconds debug-info)))
-    (format (chess-engine-debug engine-active) "Yo.%")
-    (check-type move* (or move (eql :checkmate)))
+  (multiple-value-bind (move* ponder) (chess-engine-move engine-active seconds)
+    (declare ((or move (eql :checkmate)) move*)
+             ((maybe move) ponder))
+    (declare (ignore ponder))
     (unless (eql move* :checkmate)
       (replace move move*))
     (setf (char position-string position-string-position) #\Space)
@@ -287,7 +293,7 @@
 (define-function make-uci-client ((game-status game-status)
                                   (engine-name-1 string)
                                   (engine-name-2 string)
-                                  (threads (integer 3 8192))
+                                  (threads (integer 1 8192))
                                   (turns (integer -1 200))
                                   (seconds (integer 1))
                                   (debug-stream (maybe stream))
@@ -299,16 +305,16 @@
              (chess-engine-1 (make-chess-engine :process (launch-program engine-name-1 :input :stream :output :stream)
                                                 :name (if mirror-match? (concatenate 'string engine-name-1 "-1") engine-name-1)
                                                 :prompt "1 > "
-                                                :debug-stream debug-stream))
+                                                :debug-stream debug-stream
+                                                :debug-info debug-info))
              (chess-engine-2 (make-chess-engine :process (launch-program engine-name-2 :input :stream :output :stream)
                                                 :name (if mirror-match? (concatenate 'string engine-name-2 "-2") engine-name-2)
                                                 :prompt "2 > "
-                                                :debug-stream debug-stream)))
+                                                :debug-stream debug-stream
+                                                :debug-info debug-info)))
         (unwind-protect
              (progn
-               (let ((threads (1- threads)))
-                 (initialize-chess-engine chess-engine-1 threads)
-                 (initialize-chess-engine chess-engine-2 threads))
+               (initialize-chess-engines chess-engine-1 chess-engine-2 threads)
                (let ((position-string-prefix "position startpos moves"))
                  (do ((half-turn 0 (1+ half-turn))
                       (board (make-board))
@@ -329,8 +335,7 @@
                                                              move
                                                              position-string
                                                              position-string-position
-                                                             seconds
-                                                             debug-info)))
+                                                             seconds)))
                      (with-lock-held (move-lock)
                        (replace current-move move))
                      (incf position-string-position
@@ -369,7 +374,7 @@
     (&key
      (engine-name-1 "stockfish" string)
      (engine-name-2 "stockfish" string)
-     (threads 8 (integer 3 8192))
+     (threads 8 (integer 1 8192))
      (seconds 10 (integer 1))
      (turns 3 (integer -1 200))
      (debug-stream nil (maybe stream))
@@ -390,7 +395,7 @@
                       (make-thread (make-uci-client game-status
                                                     engine-name-1
                                                     engine-name-2
-                                                    threads
+                                                    (max (1- threads) 1)
                                                     turns
                                                     seconds
                                                     debug-stream
