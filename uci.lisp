@@ -212,7 +212,7 @@
          :do
             (progn ,@body)))
 
-(define-function (parse-move-line :inline t) (line)
+(define-function (parse-move-line :inline t) ((line string) (move move) (ponder move))
   (let ((best-move? nil)
         (ponder? nil)
         (line-type nil)
@@ -237,12 +237,17 @@
             (:info
              (if mate?
                  (when (<= (parse-integer line :start start :end end) 0)
-                   (setf checkmate? t
+                   (setf checkmate? :checkmate
                          mate? nil))
                  (setf mate? (string= line "mate" :start1 start :end1 end)))))))
     (when (or (eql t best-move?) (eql t ponder?))
       (error "Syntax error in UCI line: ~A~%" line))
-    (values (or checkmate? best-move?) (if checkmate? nil ponder?) line-type)))
+    (when best-move?
+      (replace move best-move?)
+      (if ponder?
+          (replace ponder ponder?)
+          (replace ponder #.(make-move))))
+    (values (or checkmate? best-move?) line-type)))
 
 (define-function chess-engine-move ((chess-engine chess-engine)
                                     (seconds (integer 0 *))
@@ -253,14 +258,11 @@
     (go-move seconds input prompt debug)
     (loop :for line  :of-type string := (read-line output)
           :for done? :of-type (or (maybe move) (eql :checkmate))
-            := (multiple-value-bind (best-move? ponder? line-type)
-                   (parse-move-line line)
-                 (when (and best-move? (not (eql :checkmate best-move?)))
-                   (replace move best-move?)
-                   (replace ponder ponder?))
+            := (multiple-value-bind (done? line-type)
+                   (parse-move-line line move ponder)
                  (unless (and (not debug-info) (eql :info line-type))
                    (print-chess-engine-output name line debug))
-                 best-move?)
+                 done?)
           :until done?
           :finally (return (if (eql :checkmate done?) t nil)))))
 
