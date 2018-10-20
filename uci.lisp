@@ -88,14 +88,6 @@
 
 ;;; UCI
 
-(defun run-command (command process-input &optional (prompt "> ") debug-stream end)
-  (when debug-stream
-    (write-string prompt debug-stream)
-    (write-string command debug-stream :end end)
-    (terpri debug-stream))
-  (write-line command process-input :end end)
-  (force-output process-input))
-
 (defmacro do-read-char ((char stream &key eof no-hang) &body body)
   (let ((read-char (if no-hang 'read-char-no-hang 'read-char))
         (end-condition `(eql ,eof ,char)))
@@ -105,6 +97,30 @@
                `(or (null ,char) ,end-condition)
                end-condition))
          ,@body)))
+
+(defmacro do-space-separated-line ((line word start-position end-position &optional end-var)
+                                   &body body)
+  (let* ((end-condition `(null ,start-position))
+         (end-condition (if end-var `(or ,end-condition ,end-var) end-condition)))
+    `(loop ,@(if end-var `(:with ,end-var := nil) nil)
+           :for ,start-position :of-type (maybe fixnum) := 0
+             :then (if ,end-position (1+ ,end-position) nil)
+           :for ,end-position :of-type (maybe fixnum)
+             := (if (null ,start-position)
+                    nil
+                    (position #\Space ,line :start ,start-position))
+           :for ,word :of-type fixnum :from 0
+           :until ,end-condition
+           :do
+              (progn ,@body))))
+
+(defun run-command (command process-input &optional (prompt "> ") debug-stream end)
+  (when debug-stream
+    (write-string prompt debug-stream)
+    (write-string command debug-stream :end end)
+    (terpri debug-stream))
+  (write-line command process-input :end end)
+  (force-output process-input))
 
 (define-function read-opening-message ((chess-engine chess-engine))
   (with-chess-engine (output name debug) chess-engine
@@ -122,15 +138,91 @@
         (when debug (write-char char debug))))))
 
 ;;; todo: kill process if uciok is never received
-(define-function (initialize-uci :inline t) (name input output prompt debug-stream)
+(define-function initialize-uci (name input output prompt debug-stream)
   (run-command "uci" input prompt debug-stream)
-  ;; todo: parse the metadata, especially the options
-  (do ((line (read-line output nil)
-             (read-line output nil)))
-      ((or (eql :eof line)
-           (string= "uciok" line))
-       (print-chess-engine-output name line debug-stream))
-    (print-chess-engine-output name line debug-stream)))
+  (let ((id-name nil)
+        (id-author nil))
+    (loop :for line :of-type string := (read-line output)
+          :for line-type      := nil
+          :for line-subtype   := nil
+          :for name-start     := nil
+          :for name-end       := nil
+          :for option-type    := nil
+          :for option-default := nil
+          :for option-min     := nil
+          :for option-max     := nil
+          :for option-var     := nil
+          :until (string= "uciok" line)
+          :do
+             (do-space-separated-line (line word start end done?)
+               (if (zerop word)
+                   (setf line-type
+                         (cond ((string= line "id" :start1 start :end1 end) :id)
+                               ((string= line "option" :start1 start :end1 end) :option)))
+                   (case line-type
+                     (:id
+                      (case= word
+                        (1 (cond ((string= line "name" :start1 start :end1 end)
+                                  (setf line-subtype :name))
+                                 ((string= line "author" :start1 start :end1 end)
+                                  (setf line-subtype :author))
+                                 (t (error "Syntax error in UCI line: ~A~%" line))))
+                        (2 (case line-subtype
+                             (:name (setf id-name (subseq line start)))
+                             (:author (setf id-author (subseq line start))))
+                           (setf done? t))))
+                     (:option
+                      (case= word
+                        (1 (unless (string= line "name" :start1 start :end1 end)
+                             (error "Syntax error in UCI line: ~A~%" line)))
+                        (2 (setf name-start start
+                                 name-end end
+                                 line-subtype :name))
+                        (t (case line-subtype
+                             (:name
+                              (if (string= line "type" :start1 start :end1 end)
+                                  (setf line-subtype :type)
+                                  (setf name-end end)))
+                             (:type
+                              (psetf option-type (subseq line start end)
+                                     line-subtype :parameter))
+                             (:default
+                              (psetf option-default (subseq line start end)
+                                     line-subtype :parameter))
+                             (:min
+                              (psetf option-min (subseq line start end)
+                                     line-subtype :parameter))
+                             (:max
+                              (psetf option-max (subseq line start end)
+                                     line-subtype :parameter))
+                             ;; fixme: multiple vars are allowed
+                             (:var
+                              (psetf option-var (subseq line start end)
+                                     line-subtype :parameter))
+                             (:parameter (setf line-subtype
+                                               (cond ((string= line "default" :start1 start :end1 end) :default)
+                                                     ((string= line "min" :start1 start :end1 end) :min)
+                                                     ((string= line "max" :start1 start :end1 end) :max)
+                                                     ((string= line "var" :start1 start :end1 end) :var)))))))))))
+             (print-chess-engine-output name line debug-stream)
+             (when (eql line-type :option)
+               (print-chess-engine-output "DEBUG"
+                                          (format nil
+                                                  "option ~S has type ~A, default ~A, min ~A, max ~A, var ~A"
+                                                  (subseq line name-start name-end)
+                                                  option-type
+                                                  option-default
+                                                  option-min
+                                                  option-max
+                                                  option-var)
+                                          debug-stream))
+          :finally
+             (unless id-name
+               (error "UCI error: id name is required"))
+             (unless id-author
+               (error "UCI error: id author is required"))
+             (print-chess-engine-output "DEBUG" (format nil "~A is ~A by ~A" name id-name id-author) debug-stream)
+             (print-chess-engine-output name line debug-stream))))
 
 (define-function (set-option :inline t) (name value input prompt debug-stream)
   (run-command (format nil "setoption name ~A~@[ value ~A~]" name value) input prompt debug-stream))
@@ -199,18 +291,6 @@
                      end))
     (when ponder-move
       (fill position-string #\Nul :start end :end (+ end +move-length+)))))
-
-(defmacro do-space-separated-line ((line word start-position end-position) &body body)
-  `(loop :for ,start-position :of-type (maybe fixnum) := 0
-           :then (if ,end-position (1+ ,end-position) nil)
-         :for ,end-position :of-type (maybe fixnum)
-           := (if (null ,start-position)
-                  nil
-                  (position #\Space ,line :start ,start-position))
-         :for ,word :of-type fixnum :from 0
-         :until (null ,start-position)
-         :do
-            (progn ,@body)))
 
 (define-function (parse-move-line :inline t) ((line string) (move move) (ponder move))
   (let ((best-move? nil)
