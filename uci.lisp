@@ -231,9 +231,9 @@
           (case line-type
             (:best-move
              (case= word
-               (1 (setf best-move? (replace (make-move) line :start2 start :end2 end)))
+               (1 (setf best-move? (replace move line :start2 start :end2 end)))
                (2 (setf ponder? (string= line "ponder" :start1 start :end1 end)))
-               (3 (when ponder? (setf ponder? (replace (make-move) line :start2 start :end2 end))))))
+               (3 (when ponder? (setf ponder? (replace ponder line :start2 start :end2 end))))))
             (:info
              (if mate?
                  (when (<= (parse-integer line :start start :end end) 0)
@@ -242,11 +242,8 @@
                  (setf mate? (string= line "mate" :start1 start :end1 end)))))))
     (when (or (eql t best-move?) (eql t ponder?))
       (error "Syntax error in UCI line: ~A~%" line))
-    (when best-move?
-      (replace move best-move?)
-      (if ponder?
-          (replace ponder ponder?)
-          (replace ponder #.(make-move))))
+    (unless ponder?
+      (replace ponder #.(make-move)))
     (values (or checkmate? best-move?) line-type)))
 
 (define-function chess-engine-move ((chess-engine chess-engine)
