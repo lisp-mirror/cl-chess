@@ -137,6 +137,15 @@
           (setf first? nil))
         (when debug (write-char char debug))))))
 
+(defstruct uci-option
+  (name    nil :type (maybe string))
+  (type    nil :type (maybe string))
+  (default nil :type (maybe string))
+  (min     nil :type (maybe string))
+  (max     nil :type (maybe string))
+  ;; fixme: multiple vars are allowed
+  (var     nil :type (maybe string)))
+
 ;;; todo: kill process if uciok is never received
 (define-function initialize-uci (name input output prompt debug-stream)
   (run-command "uci" input prompt debug-stream)
@@ -147,11 +156,7 @@
           :for line-subtype   := nil
           :for name-start     := nil
           :for name-end       := nil
-          :for option-type    := nil
-          :for option-default := nil
-          :for option-min     := nil
-          :for option-max     := nil
-          :for option-var     := nil
+          :for uci-option     := nil
           :until (string= "uciok" line)
           :do
              (do-space-separated-line (line word start end done?)
@@ -173,31 +178,33 @@
                            (setf done? t))))
                      (:option
                       (case= word
-                        (1 (unless (string= line "name" :start1 start :end1 end)
-                             (error "Syntax error in UCI line: ~A~%" line)))
+                        (1 (if (string= line "name" :start1 start :end1 end)
+                               (setf uci-option (make-uci-option))
+                               (error "Syntax error in UCI line: ~A~%" line)))
                         (2 (setf name-start start
                                  name-end end
                                  line-subtype :name))
                         (t (case line-subtype
                              (:name
                               (if (string= line "type" :start1 start :end1 end)
-                                  (setf line-subtype :type)
+                                  (psetf (uci-option-name uci-option) (subseq line name-start name-end)
+                                         line-subtype :type)
                                   (setf name-end end)))
                              (:type
-                              (psetf option-type (subseq line start end)
+                              (psetf (uci-option-type uci-option) (subseq line start end)
                                      line-subtype :parameter))
                              (:default
-                              (psetf option-default (subseq line start end)
+                              (psetf (uci-option-default uci-option) (subseq line start end)
                                      line-subtype :parameter))
                              (:min
-                              (psetf option-min (subseq line start end)
+                              (psetf (uci-option-min uci-option) (subseq line start end)
                                      line-subtype :parameter))
                              (:max
-                              (psetf option-max (subseq line start end)
+                              (psetf (uci-option-max uci-option) (subseq line start end)
                                      line-subtype :parameter))
                              ;; fixme: multiple vars are allowed
                              (:var
-                              (psetf option-var (subseq line start end)
+                              (psetf (uci-option-var uci-option) (subseq line start end)
                                      line-subtype :parameter))
                              (:parameter (setf line-subtype
                                                (cond ((string= line "default" :start1 start :end1 end) :default)
@@ -206,16 +213,7 @@
                                                      ((string= line "var" :start1 start :end1 end) :var)))))))))))
              (print-chess-engine-output name line debug-stream)
              (when (eql line-type :option)
-               (print-chess-engine-output "DEBUG"
-                                          (format nil
-                                                  "option ~S has type ~A, default ~A, min ~A, max ~A, var ~A"
-                                                  (subseq line name-start name-end)
-                                                  option-type
-                                                  option-default
-                                                  option-min
-                                                  option-max
-                                                  option-var)
-                                          debug-stream))
+               (print-chess-engine-output "DEBUG" (format nil "~S" uci-option) debug-stream))
           :finally
              (unless id-name
                (error "UCI error: id name is required"))
