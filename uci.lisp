@@ -212,47 +212,56 @@
          :do
             (progn ,@body)))
 
+(define-function (parse-move-line :inline t) (line)
+  (let ((best-move? nil)
+        (ponder? nil)
+        (line-type nil)
+        (checkmate? nil)
+        (mate? nil))
+    (declare ((or boolean move) best-move? ponder?)
+             ((maybe keyword) line-type checkmate?)
+             (boolean mate?))
+    (do-space-separated-line (line word start end)
+      (if (zerop word)
+          (cond ((string= line "info" :start1 start :end1 end)
+                 (setf line-type :info))
+                ((string= line "bestmove" :start1 start :end1 end)
+                 (setf line-type :best-move
+                       best-move? t)))
+          (case line-type
+            (:best-move
+             (case= word
+               (1 (setf best-move? (replace (make-move) line :start2 start :end2 end)))
+               (2 (setf ponder? (string= line "ponder" :start1 start :end1 end)))
+               (3 (when ponder? (setf ponder? (replace (make-move) line :start2 start :end2 end))))))
+            (:info
+             (if mate?
+                 (when (<= (parse-integer line :start start :end end) 0)
+                   (setf checkmate? t
+                         mate? nil))
+                 (setf mate? (string= line "mate" :start1 start :end1 end)))))))
+    (when (or (eql t best-move?) (eql t ponder?))
+      (error "Syntax error in UCI line: ~A~%" line))
+    (values (or checkmate? best-move?) (if checkmate? nil ponder?) line-type)))
+
 (defun chess-engine-move (chess-engine seconds)
   (with-chess-engine (input output name prompt debug debug-info)
       chess-engine
     (go-move seconds input prompt debug)
-    (do ((line (read-line output nil :eof)
-               (unless (or best-move? checkmate? (eql :eof line))
-                 (read-line output nil :eof)))
-         (line-type nil nil)
-         (checkmate? nil)
-         (best-move? nil)
-         (ponder? nil))
-        ((or best-move? checkmate? (eql :eof line))
-         (if checkmate?
-             (values :checkmate nil)
-             (values best-move? ponder?)))
-      (declare ((or boolean move) best-move? ponder?)
-               ((maybe keyword) line-type checkmate?))
-      (let ((mate? nil))
-        (do-space-separated-line (line word start end)
-          (if (zerop word)
-              (cond ((string= line "info" :start1 start :end1 end)
-                     (setf line-type :info))
-                    ((string= line "bestmove" :start1 start :end1 end)
-                     (setf line-type :best-move
-                           best-move? t)))
-              (case line-type
-                (:best-move
-                 (case= word
-                   (1 (setf best-move? (replace (make-move) line :start2 start :end2 end)))
-                   (2 (setf ponder? (string= line "ponder" :start1 start :end1 end)))
-                   (3 (when ponder? (setf ponder? (replace (make-move) line :start2 start :end2 end))))))
-                (:info
-                 (if mate?
-                     (when (<= (parse-integer line :start start :end end) 0)
-                       (setf checkmate? t
-                             mate? nil))
-                     (setf mate? (string= line "mate" :start1 start :end1 end))))))))
-      (when (or (eql t best-move?) (eql t ponder?))
-        (error "Syntax error in UCI line: ~A~%" line))
-      (unless (and (not debug-info) (eql :info line-type))
-        (print-chess-engine-output name line debug)))))
+    (loop :with move   :of-type (maybe move) := nil
+          :with ponder :of-type (maybe move) := nil
+          :for line    :of-type string       := (read-line output)
+          :for done?   :of-type boolean
+            := (multiple-value-bind (best-move? ponder? line-type)
+                   (parse-move-line line)
+                 (when best-move?
+                   (psetf move best-move?
+                          ponder ponder?))
+                 (unless (and (not debug-info) (eql :info line-type))
+                   (print-chess-engine-output name line debug))
+                 (not (not best-move?)))
+          :until done?
+          :finally (return (values move ponder)))))
 
 (define-function half-turn ((engine-active chess-engine)
                             (move move)
