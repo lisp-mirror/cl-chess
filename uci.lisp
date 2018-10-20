@@ -244,24 +244,25 @@
       (error "Syntax error in UCI line: ~A~%" line))
     (values (or checkmate? best-move?) (if checkmate? nil ponder?) line-type)))
 
-(defun chess-engine-move (chess-engine seconds)
+(define-function chess-engine-move ((chess-engine chess-engine)
+                                    (seconds (integer 0 *))
+                                    (move move)
+                                    (ponder move))
   (with-chess-engine (input output name prompt debug debug-info)
       chess-engine
     (go-move seconds input prompt debug)
-    (loop :with move   :of-type (maybe move) := nil
-          :with ponder :of-type (maybe move) := nil
-          :for line    :of-type string       := (read-line output)
-          :for done?   :of-type boolean
+    (loop :for line  :of-type string := (read-line output)
+          :for done? :of-type (or (maybe move) (eql :checkmate))
             := (multiple-value-bind (best-move? ponder? line-type)
                    (parse-move-line line)
-                 (when best-move?
-                   (psetf move best-move?
-                          ponder ponder?))
+                 (when (and best-move? (not (eql :checkmate best-move?)))
+                   (replace move best-move?)
+                   (replace ponder ponder?))
                  (unless (and (not debug-info) (eql :info line-type))
                    (print-chess-engine-output name line debug))
-                 (not (not best-move?)))
+                 best-move?)
           :until done?
-          :finally (return (values move ponder)))))
+          :finally (return (if (eql :checkmate done?) t nil)))))
 
 (define-function half-turn ((engine-active chess-engine)
                             (move move)
@@ -269,17 +270,12 @@
                             seconds)
   (with-position-string-and-position (string position) position-string
     (update-position engine-active string nil position)
-    (multiple-value-bind (move* ponder) (chess-engine-move engine-active seconds)
-      (declare ((or move (eql :checkmate)) move*)
-               ((maybe move) ponder))
-      (declare (ignore ponder))
-      (unless (eql move* :checkmate)
-        (replace move move*))
+    (let* ((ponder (make-move))
+           (checkmate? (chess-engine-move engine-active seconds move ponder)))
       (setf (char string position) #\Space)
       (replace string move :start1 (1+ position))
-      (incf position
-            (if (promotion? move) (1+ +move-length+) +move-length+))
-      (eql move* :checkmate))))
+      (incf position (if (promotion? move) (1+ +move-length+) +move-length+))
+      checkmate?)))
 
 (define-function (make-chess-engine-pair :inline t) (engine-name-1 engine-name-2 debug-stream debug-info)
   (let ((mirror-match? (string= engine-name-1 engine-name-2)))
