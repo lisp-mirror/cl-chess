@@ -6,6 +6,7 @@
                 #:process-alive-p
                 #:process-info-input
                 #:process-info-output
+                #:terminate-process
                 #:wait-process)
   (:import-from #:uiop/launch-program
                 #:process-info)
@@ -146,81 +147,89 @@
   ;; fixme: multiple vars are allowed
   (var     nil :type (maybe string)))
 
-;;; todo: kill process if uciok is never received
-(define-function initialize-uci (name input output prompt debug-stream)
-  (run-command "uci" input prompt debug-stream)
-  (let ((id-name nil)
-        (id-author nil))
-    (loop :for line :of-type string := (read-line output)
-          :for line-type      := nil
-          :for line-subtype   := nil
-          :for name-start     := nil
-          :for name-end       := nil
-          :for uci-option     := nil
-          :until (string= "uciok" line)
-          :do
-             (do-space-separated-line (line word start end done?)
-               (if (zerop word)
-                   (setf line-type
-                         (cond ((string= line "id" :start1 start :end1 end) :id)
-                               ((string= line "option" :start1 start :end1 end) :option)))
-                   (case line-type
-                     (:id
-                      (case= word
-                        (1 (cond ((string= line "name" :start1 start :end1 end)
-                                  (setf line-subtype :name))
-                                 ((string= line "author" :start1 start :end1 end)
-                                  (setf line-subtype :author))
-                                 (t (error "Syntax error in UCI line: ~A~%" line))))
-                        (2 (case line-subtype
-                             (:name (setf id-name (subseq line start)))
-                             (:author (setf id-author (subseq line start))))
-                           (setf done? t))))
-                     (:option
-                      (case= word
-                        (1 (if (string= line "name" :start1 start :end1 end)
-                               (setf uci-option (make-uci-option))
-                               (error "Syntax error in UCI line: ~A~%" line)))
-                        (2 (setf name-start start
-                                 name-end end
-                                 line-subtype :name))
-                        (t (case line-subtype
-                             (:name
-                              (if (string= line "type" :start1 start :end1 end)
-                                  (psetf (uci-option-name uci-option) (subseq line name-start name-end)
-                                         line-subtype :type)
-                                  (setf name-end end)))
-                             (:type
-                              (psetf (uci-option-type uci-option) (subseq line start end)
-                                     line-subtype :parameter))
-                             (:default
-                              (psetf (uci-option-default uci-option) (subseq line start end)
-                                     line-subtype :parameter))
-                             (:min
-                              (psetf (uci-option-min uci-option) (subseq line start end)
-                                     line-subtype :parameter))
-                             (:max
-                              (psetf (uci-option-max uci-option) (subseq line start end)
-                                     line-subtype :parameter))
-                             ;; fixme: multiple vars are allowed
-                             (:var
-                              (psetf (uci-option-var uci-option) (subseq line start end)
-                                     line-subtype :parameter))
-                             (:parameter (setf line-subtype
-                                               (cond ((string= line "default" :start1 start :end1 end) :default)
-                                                     ((string= line "min" :start1 start :end1 end) :min)
-                                                     ((string= line "max" :start1 start :end1 end) :max)
-                                                     ((string= line "var" :start1 start :end1 end) :var)))))))))))
-             (print-chess-engine-output name line debug-stream)
-          :when uci-option
-            :collect uci-option
-          :finally
-             (unless id-name
-               (error "UCI error: id name is required"))
-             (unless id-author
-               (error "UCI error: id author is required"))
-             (print-chess-engine-output "DEBUG" (format nil "~A is ~A by ~A" name id-name id-author) debug-stream)
-             (print-chess-engine-output name line debug-stream))))
+(define-function initialize-uci ((chess-engine chess-engine))
+  (with-chess-engine (process input output name prompt debug)
+      chess-engine
+    (run-command "uci" input prompt debug)
+    (let ((id-name nil)
+          (id-author nil))
+      (loop :for line :of-type string := (do ((output? (listen output) (listen output))
+                                              (time 0))
+                                             (output? (read-line output))
+                                           (sleep 1/1000)
+                                           (incf time)
+                                           (when (> time 5000)
+                                             (terminate-process process)
+                                             (error "Process ~A did not respond with \"uciok\"." name)))
+            :for line-type    := nil
+            :for line-subtype := nil
+            :for name-start   := nil
+            :for name-end     := nil
+            :for uci-option   := nil
+            :until (string= "uciok" line)
+            :do
+               (do-space-separated-line (line word start end done?)
+                 (if (zerop word)
+                     (setf line-type
+                           (cond ((string= line "id" :start1 start :end1 end) :id)
+                                 ((string= line "option" :start1 start :end1 end) :option)))
+                     (case line-type
+                       (:id
+                        (case= word
+                          (1 (cond ((string= line "name" :start1 start :end1 end)
+                                    (setf line-subtype :name))
+                                   ((string= line "author" :start1 start :end1 end)
+                                    (setf line-subtype :author))
+                                   (t (error "Syntax error in UCI line: ~A~%" line))))
+                          (2 (case line-subtype
+                               (:name (setf id-name (subseq line start)))
+                               (:author (setf id-author (subseq line start))))
+                             (setf done? t))))
+                       (:option
+                        (case= word
+                          (1 (if (string= line "name" :start1 start :end1 end)
+                                 (setf uci-option (make-uci-option))
+                                 (error "Syntax error in UCI line: ~A~%" line)))
+                          (2 (setf name-start start
+                                   name-end end
+                                   line-subtype :name))
+                          (t (case line-subtype
+                               (:name
+                                (if (string= line "type" :start1 start :end1 end)
+                                    (psetf (uci-option-name uci-option) (subseq line name-start name-end)
+                                           line-subtype :type)
+                                    (setf name-end end)))
+                               (:type
+                                (psetf (uci-option-type uci-option) (subseq line start end)
+                                       line-subtype :parameter))
+                               (:default
+                                (psetf (uci-option-default uci-option) (subseq line start end)
+                                       line-subtype :parameter))
+                               (:min
+                                (psetf (uci-option-min uci-option) (subseq line start end)
+                                       line-subtype :parameter))
+                               (:max
+                                (psetf (uci-option-max uci-option) (subseq line start end)
+                                       line-subtype :parameter))
+                               ;; fixme: multiple vars are allowed
+                               (:var
+                                (psetf (uci-option-var uci-option) (subseq line start end)
+                                       line-subtype :parameter))
+                               (:parameter (setf line-subtype
+                                                 (cond ((string= line "default" :start1 start :end1 end) :default)
+                                                       ((string= line "min" :start1 start :end1 end) :min)
+                                                       ((string= line "max" :start1 start :end1 end) :max)
+                                                       ((string= line "var" :start1 start :end1 end) :var)))))))))))
+               (print-chess-engine-output name line debug)
+            :when uci-option
+              :collect uci-option
+            :finally
+               (unless id-name
+                 (error "UCI error: id name is required"))
+               (unless id-author
+                 (error "UCI error: id author is required"))
+               (print-chess-engine-output "DEBUG" (format nil "~A is ~A by ~A" name id-name id-author) debug)
+               (print-chess-engine-output name line debug)))))
 
 (define-function (set-option :inline t) (name value input prompt debug-stream)
   (run-command (format nil "setoption name ~A~@[ value ~A~]" name value) input prompt debug-stream))
@@ -250,7 +259,7 @@
   (with-chess-engine (input output name prompt debug)
       chess-engine
     (read-opening-message chess-engine)
-    (let* ((options (initialize-uci name input output prompt debug))
+    (let* ((options (initialize-uci chess-engine))
            (threads-option (find-if (lambda (uci-option)
                                       (string= (uci-option-name uci-option) "Threads"))
                                     options)))
