@@ -246,8 +246,16 @@
 (define-function (go-ponder :inline t) (input prompt debug-stream)
   (run-command "go ponder" input prompt debug-stream))
 
-(define-function (go-move :inline t) (seconds input prompt debug-stream)
-  (run-command (format nil "go movetime ~D000" seconds) input prompt debug-stream))
+(define-function (go-move :inline t) (chess-engine &key (move-time nil (maybe (integer 1 *))))
+  "
+Tell the chess engine to move for move-time milliseconds. For
+pondering, use `go-ponder' instead. Keys that are not yet implemented
+but might be implemented in the future are: search-moves, w-time,
+b-time, w-inc, b-inc, moves-to-go, depth, nodes, mate, and infinite.
+"
+  (with-chess-engine (input prompt debug)
+      chess-engine
+    (run-command (format nil "go~@[ movetime ~D~]" move-time) input prompt debug)))
 
 (define-function (ponder-hit :inline t) (input prompt debug-stream)
   (run-command "ponderhit" input prompt debug-stream))
@@ -354,7 +362,7 @@
                                     (ponder move))
   (with-chess-engine (input output name prompt debug debug-info)
       chess-engine
-    (go-move seconds input prompt debug)
+    (go-move chess-engine :move-time (* seconds 1000))
     (loop :for line  :of-type string := (read-line output)
           :for done? :of-type (or (maybe move) (eql :checkmate))
             := (multiple-value-bind (done? line-type)
