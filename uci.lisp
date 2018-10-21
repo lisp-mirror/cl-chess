@@ -212,8 +212,8 @@
                                                      ((string= line "max" :start1 start :end1 end) :max)
                                                      ((string= line "var" :start1 start :end1 end) :var)))))))))))
              (print-chess-engine-output name line debug-stream)
-             (when (eql line-type :option)
-               (print-chess-engine-output "DEBUG" (format nil "~S" uci-option) debug-stream))
+          :when uci-option
+            :collect uci-option
           :finally
              (unless id-name
                (error "UCI error: id name is required"))
@@ -250,8 +250,23 @@
   (with-chess-engine (input output name prompt debug)
       chess-engine
     (read-opening-message chess-engine)
-    (initialize-uci name input output prompt debug)
-    (set-option "Threads" threads input prompt debug)
+    (let* ((options (initialize-uci name input output prompt debug))
+           (threads-option (find-if (lambda (uci-option)
+                                      (string= (uci-option-name uci-option) "Threads"))
+                                    options)))
+      (if threads-option
+          (let* ((min (parse-integer (uci-option-min threads-option)))
+                 (max (parse-integer (uci-option-max threads-option)))
+                 (threads* (min (max threads min) max)))
+            (unless (= threads threads*)
+              (print-chess-engine-output "DEBUG"
+                                         (format nil
+                                                 "Note: Requested ~D threads, but the value has to be ~D to stay in range."
+                                                 threads
+                                                 threads*)
+                                         debug))
+            (set-option "Threads" threads* input prompt debug))
+          (print-chess-engine-output "DEBUG" "Note: Threads cannot be customized." debug)))
     (ready? name input output prompt debug)
     (new-game name input output prompt debug)))
 
