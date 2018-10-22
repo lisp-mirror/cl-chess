@@ -243,19 +243,67 @@
   (run-command "ucinewgame" input prompt debug-stream)
   (ready? name input output prompt debug-stream))
 
-(define-function (go-ponder :inline t) (input prompt debug-stream)
-  (run-command "go ponder" input prompt debug-stream))
-
-(define-function (go-move :inline t) (chess-engine &key (move-time nil (maybe (integer 1 *))))
+(define-function go-move (chess-engine
+                          &key
+                          (ponder? nil boolean)
+                          (w-time nil (maybe (integer 0 *)))
+                          (b-time nil (maybe (integer 0 *)))
+                          (w-inc nil (maybe (integer 1 *)))
+                          (b-inc nil (maybe (integer 1 *)))
+                          (moves-to-go nil (maybe (integer 0 *)))
+                          (depth nil (maybe (integer 1 *)))
+                          (nodes nil (maybe (integer 1 *)))
+                          (mate nil (maybe (integer 0 *)))
+                          (move-time nil (maybe (integer 1 *)))
+                          (infinite? nil boolean))
   "
-Tell the chess engine to move for move-time milliseconds. For
-pondering, use `go-ponder' instead. Keys that are not yet implemented
-but might be implemented in the future are: search-moves, w-time,
-b-time, w-inc, b-inc, moves-to-go, depth, nodes, mate, and infinite.
+Send the UCI move command to the chess engine. All time-related
+commands are measured in milliseconds.
+
+ponder? tells the engine to enter pondering mode if true.
+
+w-time and b-time tell the chess engine how much time is left on the
+clock for white and black respectively and w-inc and b-inc give the
+white and black increments of added time per move. moves-to-go tells
+the chess engine how many moves are remaining until the next time
+control.
+
+depth and nodes specifies how deep and how many nodes to search.
+
+mate tells the engine to look for a mate in that many moves.
+
+move-time tells the engine to take exactly that long.
+
+infinite? tells the engine to wait until `stop' if true.
+
+Note: search-moves has not yet been implemented, but might be
+implemented in the future.
 "
-  (with-chess-engine (input prompt debug)
-      chess-engine
-    (run-command (format nil "go~@[ movetime ~D~]" move-time) input prompt debug)))
+  (let ((moves-to-go (if (and moves-to-go (zerop moves-to-go))
+                         nil
+                         moves-to-go)))
+    (with-chess-engine (input prompt debug)
+        chess-engine
+      (run-command (format nil
+                           #.(concatenate 'string
+                                          "go~:[~; ponder~]"
+                                          "~@[ wtime ~D~]~@[ btime ~D~]~@[ winc ~D~]~@[ b-inc ~D~]~@[ movestogo ~D~]"
+                                          "~@[ depth ~D~]~@[ nodes ~D~]~@[ mate ~D~]"
+                                          "~@[ movetime ~D~]~:[~; infinite~]")
+                           ponder?
+                           w-time
+                           b-time
+                           w-inc
+                           b-inc
+                           moves-to-go
+                           depth
+                           nodes
+                           mate
+                           move-time
+                           infinite?)
+                   input
+                   prompt
+                   debug))))
 
 (define-function (ponder-hit :inline t) (input prompt debug-stream)
   (run-command "ponderhit" input prompt debug-stream))
