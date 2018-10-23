@@ -89,15 +89,15 @@
 
 ;;; UCI
 
-(defmacro do-read-char ((char stream &key eof no-hang) &body body)
-  (let ((read-char (if no-hang 'read-char-no-hang 'read-char))
-        (end-condition `(eql ,eof ,char)))
+(defmacro do-read-char ((char stream &key eof no-hang end-var) &body body)
+  (let* ((read-char (if no-hang 'read-char-no-hang 'read-char))
+         (end-condition `(eql ,eof ,char))
+         (end-condition (if no-hang `(or (null ,char) ,end-condition) end-condition))
+         (end-condition (if end-var `(and ,end-var ,end-condition) end-condition)))
     `(do ((,char (,read-char ,stream nil ,eof)
                  (,read-char ,stream nil ,eof)))
-         (,(if no-hang
-               `(or (null ,char) ,end-condition)
-               end-condition))
-         ,@body)))
+         (,end-condition)
+       ,@body)))
 
 (defmacro do-space-separated-line ((line word start-position end-position &optional end-var)
                                    &body body)
@@ -234,14 +234,46 @@
 (define-function (set-option :inline t) (name value input prompt debug-stream)
   (run-command (format nil "setoption name ~A~@[ value ~A~]" name value) input prompt debug-stream))
 
-;;; todo: verify that the chess engine says "readyok"
-(define-function (ready? :inline t) (name input output prompt debug-stream)
-  (run-command "isready" input prompt debug-stream)
-  (print-chess-engine-output name (read-line output) debug-stream))
+(define-function ready? (name input output prompt debug process)
+  "
+Tries for approximately 5 seconds to receive the line \"readyok\" in
+response to the command \"isready\".
+"
+  (run-command "isready" input prompt debug)
+  (let ((i 0)
+        (in-ready-ok? t)
+        (ready-ok? nil)
+        (start-time (get-internal-real-time)))
+    (do-read-char (char output :no-hang t :end-var ready-ok?)
+      (when (and debug char (zerop i)) (format debug "~A : " name))
+      (cond ((null char)
+             (sleep 1/1000))
+            ((char= char #\Newline)
+             (when debug (write-char char debug))
+             (if (and in-ready-ok? (= 7 i))
+                 (setf ready-ok? t)
+                 (setf i 0)))
+            (t
+             (when debug (write-char char debug))
+             (setf in-ready-ok?
+                   (case char
+                     (#\r (if (and in-ready-ok? (zerop i)) t nil))
+                     (#\e (if (and in-ready-ok? (= 1 i)) t nil))
+                     (#\a (if (and in-ready-ok? (= 2 i)) t nil))
+                     (#\d (if (and in-ready-ok? (= 3 i)) t nil))
+                     (#\y (if (and in-ready-ok? (= 4 i)) t nil))
+                     (#\o (if (and in-ready-ok? (= 5 i)) t nil))
+                     (#\k (if (and in-ready-ok? (= 6 i)) t nil))))
+             (incf i)))
+      (when (and (not ready-ok?)
+                 (> (- (get-internal-real-time) start-time)
+                    (* 5 internal-time-units-per-second)))
+        (terminate-process process)
+        (error "Process ~A did not respond with \"readyok\"." name)))))
 
-(define-function (new-game :inline t) (name input output prompt debug-stream)
+(define-function (new-game :inline t) (name input output prompt debug-stream process)
   (run-command "ucinewgame" input prompt debug-stream)
-  (ready? name input output prompt debug-stream))
+  (ready? name input output prompt debug-stream process))
 
 (define-function go-move (chess-engine
                           &key
@@ -312,7 +344,7 @@ implemented in the future.
   (run-command "stop" input prompt debug-stream))
 
 (defun initialize-chess-engine (chess-engine threads)
-  (with-chess-engine (input output name prompt debug)
+  (with-chess-engine (process input output name prompt debug)
       chess-engine
     (read-opening-message chess-engine)
     (let* ((options (initialize-uci chess-engine))
@@ -332,8 +364,8 @@ implemented in the future.
                                          debug))
             (set-option "Threads" threads* input prompt debug))
           (print-chess-engine-output "DEBUG" "Note: Threads cannot be customized." debug)))
-    (ready? name input output prompt debug)
-    (new-game name input output prompt debug)))
+    (ready? name input output prompt debug process)
+    (new-game name input output prompt debug process)))
 
 (define-function initialize-chess-engines ((chess-engine-1 chess-engine) (chess-engine-2 chess-engine) threads)
   (initialize-chess-engine chess-engine-1 threads)
