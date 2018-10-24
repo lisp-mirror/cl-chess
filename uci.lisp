@@ -68,7 +68,7 @@
   (input      nil :type stream       :read-only t)
   (output     nil :type stream       :read-only t)
   (debug      nil :type (maybe stream))
-  (debug-info nil :type boolean)
+  (debug-info   2 :type (integer 0 3))
   (name       nil :type string       :read-only t)
   (prompt     nil :type string       :read-only t))
 
@@ -148,7 +148,7 @@
   (var     nil :type (maybe string)))
 
 (define-function initialize-uci ((chess-engine chess-engine))
-  (with-chess-engine (process input output name prompt debug)
+  (with-chess-engine (process input output name prompt debug debug-info)
       chess-engine
     (run-command "uci" input prompt debug)
     (let ((id-name nil)
@@ -220,7 +220,8 @@
                                                        ((string= line "min" :start1 start :end1 end) :min)
                                                        ((string= line "max" :start1 start :end1 end) :max)
                                                        ((string= line "var" :start1 start :end1 end) :var)))))))))))
-               (print-chess-engine-output name line debug)
+               (unless (< debug-info 2)
+                 (print-chess-engine-output name line debug))
             :when uci-option
               :collect uci-option
             :finally
@@ -447,7 +448,7 @@ implemented in the future.
           :for done? :of-type (or (maybe move) (eql :checkmate))
             := (multiple-value-bind (done? line-type)
                    (parse-move-line line move ponder)
-                 (unless (and (not debug-info) (eql :info line-type))
+                 (unless (and (< debug-info 3) (eql :info line-type))
                    (print-chess-engine-output name line debug))
                  done?)
           :until done?

@@ -75,7 +75,7 @@
                                   (turns (integer -1 200))
                                   (seconds (integer 1))
                                   (debug-stream (maybe stream))
-                                  (debug-info boolean))
+                                  (debug-info (integer 0 3)))
   (lambda ()
     (with-game-status ((current-move move) done? move-lock status-lock)
         game-status
@@ -128,7 +128,7 @@
      (seconds 10 (integer 1))
      (turns 3 (integer -1 200))
      (debug-stream nil (maybe stream))
-     (debug-info nil boolean)
+     (debug-info 2 (integer 0 3))
      (width 1280 (integer 200))
      (height 720 (integer 200)))
   (make-chess-gui width
