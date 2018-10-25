@@ -65,6 +65,18 @@
 
 ;;; Chess engine
 
+;;; todo: Handle the special case when the UCI server (chess-engine)
+;;; is running in the same process as the UCI client. Keep the
+;;; input/output streams, but set process to nil and don't use UIOP
+;;; for the streams.
+;;;
+;;; todo: This means adding a slot to `chess-engine-profile' and
+;;; calling `make-chess-engine' with a different process type. Only
+;;; keep the current behavior in `make-chess-engine' when the process
+;;; is of type `process-info' and only create the process in
+;;; `make-chess-engine*' when the chess-engine-profile tells it to use
+;;; a separate process.
+
 (defstruct (chess-engine (:constructor %make-chess-engine))
   (process    nil :type process-info :read-only t)
   (input      nil :type stream       :read-only t)
