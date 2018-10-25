@@ -10,7 +10,8 @@
                 #:wait-process)
   (:import-from #:uiop/launch-program
                 #:process-info)
-  (:export #:half-turn
+  (:export #:chess-engine-profile
+           #:half-turn
            #:initialize-chess-engines
            #:make-chess-engine
            #:make-chess-engine-pair
@@ -464,7 +465,7 @@ implemented in the future.
     (values (or checkmate? best-move?) line-type)))
 
 (define-function chess-engine-move ((chess-engine chess-engine)
-                                    (seconds (integer 0 *))
+                                    (seconds (integer 1 *))
                                     (move move)
                                     (ponder move))
   (with-chess-engine (input output name prompt debug debug-info)
