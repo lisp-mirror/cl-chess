@@ -126,6 +126,32 @@
                                          (format nil "Final outcome: ~A" (if outcome outcome :crash))
                                          debug-stream))))))))
 
+(define-function update-visual-board* (&key hud-ecs (state nil game-status) &allow-other-keys)
+  (with-game-status (move move-lock) state
+    (with-lock-held (move-lock)
+      (unless (null-move? move)
+        (update-visual-board hud-ecs move)
+        (replace move #.(make-move))))))
+
+(define-function make-init-function ((profile-1 chess-engine-profile)
+                                     (profile-2 chess-engine-profile)
+                                     (config game-configuration))
+  (lambda (&key ecs hud-ecs mesh-keys width height)
+    (let ((game-status (make-game-status)))
+      (make-thread (make-uci-client game-status profile-1 profile-2 config))
+      (make-chess-graphics :ecs ecs
+                           :hud-ecs hud-ecs
+                           :mesh-keys mesh-keys
+                           :width width
+                           :height height)
+      (values nil
+              game-status
+              (lambda ()
+                (with-game-status (done? status-lock) game-status
+                  (with-lock-held (status-lock)
+                    (unless done?
+                      (setf done? :gui-quit)))))))))
+
 ;;; todo: Record moves in algebraic notation
 ;;;
 ;;; todo: Handle draws and other edge cases.
@@ -152,35 +178,14 @@
      (height 720 (integer 200)))
   (make-chess-gui width
                   height
-                  (lambda (&key hud-ecs state &allow-other-keys)
-                    (declare (game-status state))
-                    (with-game-status (move move-lock) state
-                      (with-lock-held (move-lock)
-                        (unless (null-move? move)
-                          (update-visual-board hud-ecs move)
-                          (replace move #.(make-move))))))
-                  (lambda (&key ecs hud-ecs mesh-keys width height)
-                    (let ((game-status (make-game-status))
-                          (profile-1 (make-chess-engine-profile :name engine-name-1
-                                                                :debug-stream debug-stream
-                                                                :debug-info debug-info))
-                          (profile-2 (make-chess-engine-profile :name engine-name-2
-                                                                :debug-stream debug-stream
-                                                                :debug-info debug-info))
-                          (config (make-game-configuration :threads (max (1- threads) 1)
-                                                           :turns turns
-                                                           :seconds seconds
-                                                           :debug-stream debug-stream)))
-                      (make-thread (make-uci-client game-status profile-1 profile-2 config))
-                      (make-chess-graphics :ecs ecs
-                                           :hud-ecs hud-ecs
-                                           :mesh-keys mesh-keys
-                                           :width width
-                                           :height height)
-                      (values nil
-                              game-status
-                              (lambda ()
-                                (with-game-status (done? status-lock) game-status
-                                  (with-lock-held (status-lock)
-                                    (unless done?
-                                      (setf done? :gui-quit))))))))))
+                  #'update-visual-board*
+                  (make-init-function (make-chess-engine-profile :name engine-name-1
+                                                                 :debug-stream debug-stream
+                                                                 :debug-info debug-info)
+                                      (make-chess-engine-profile :name engine-name-2
+                                                                 :debug-stream debug-stream
+                                                                 :debug-info debug-info)
+                                      (make-game-configuration :threads (max (1- threads) 1)
+                                                               :turns turns
+                                                               :seconds seconds
+                                                               :debug-stream debug-stream))))
