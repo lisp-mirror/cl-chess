@@ -72,6 +72,8 @@
   (name       nil :type string       :read-only t)
   (prompt     nil :type string       :read-only t))
 
+(define-accessor-macro with-chess-engine #.(symbol-name '#:chess-engine-))
+
 (define-function (make-chess-engine :inline t) (&key process name prompt debug-stream debug-info)
   (%make-chess-engine :process process
                       :input (process-info-input process)
@@ -81,7 +83,24 @@
                       :name name
                       :prompt prompt))
 
-(define-accessor-macro with-chess-engine #.(symbol-name '#:chess-engine-))
+(defstruct chess-engine-profile
+  (name          nil :type string)
+  (debug-stream  nil :type (maybe stream))
+  (debug-info      2 :type (integer 0 3)))
+
+(define-accessor-macro with-chess-engine-profile #.(symbol-name '#:chess-engine-profile-))
+
+(define-function (make-chess-engine* :inline t) ((chess-engine-profile chess-engine-profile)
+                                                 &key
+                                                 (side 1 (integer 1 2))
+                                                 (mirror-match? nil boolean))
+  (with-chess-engine-profile (name debug-stream debug-info)
+      chess-engine-profile
+    (make-chess-engine :process (launch-program name :input :stream :output :stream)
+                       :name (if mirror-match? (format nil "~A-~D" name side) name)
+                       :prompt (format nil "~D > " side)
+                       :debug-stream debug-stream
+                       :debug-info debug-info)))
 
 (define-function (print-chess-engine-output :inline t) (name line debug-stream)
   (when debug-stream
@@ -475,13 +494,13 @@ implemented in the future.
 
 (define-function (make-chess-engine-pair :inline t) (engine-name-1 engine-name-2 debug-stream debug-info)
   (let ((mirror-match? (string= engine-name-1 engine-name-2)))
-    (values (make-chess-engine :process (launch-program engine-name-1 :input :stream :output :stream)
-                               :name (if mirror-match? (concatenate 'string engine-name-1 "-1") engine-name-1)
-                               :prompt "1 > "
-                               :debug-stream debug-stream
-                               :debug-info debug-info)
-            (make-chess-engine :process (launch-program engine-name-2 :input :stream :output :stream)
-                               :name (if mirror-match? (concatenate 'string engine-name-2 "-2") engine-name-2)
-                               :prompt "2 > "
-                               :debug-stream debug-stream
-                               :debug-info debug-info))))
+    (values (make-chess-engine* (make-chess-engine-profile :name engine-name-1
+                                                           :debug-stream debug-stream
+                                                           :debug-info debug-info)
+                                :side 1
+                                :mirror-match? mirror-match?)
+            (make-chess-engine* (make-chess-engine-profile :name engine-name-2
+                                                           :debug-stream debug-stream
+                                                           :debug-info debug-info)
+                                :side 2
+                                :mirror-match? mirror-match?))))
