@@ -232,49 +232,55 @@
                (print-chess-engine-output "DEBUG" (format nil "~A is ~A by ~A" name id-name id-author) debug)
                (print-chess-engine-output name line debug)))))
 
-(defun set-option (name value input prompt debug-stream)
-  (run-command (format nil "setoption name ~A~@[ value ~A~]" name value) input prompt debug-stream))
+(define-function set-option ((chess-engine chess-engine) option-name value)
+  (with-chess-engine (input prompt debug)
+      chess-engine
+    (run-command (format nil "setoption name ~A~@[ value ~A~]" option-name value) input prompt debug)))
 
-(define-function ready? (name input output prompt debug process)
+(define-function ready? ((chess-engine chess-engine))
   "
 Tries for approximately 5 seconds to receive the line \"readyok\" in
 response to the command \"isready\".
 "
-  (run-command "isready" input prompt debug)
-  (let ((i 0)
-        (in-ready-ok? t)
-        (ready-ok? nil)
-        (start-time (get-internal-real-time)))
-    (do-read-char (char output :no-hang t :end-var ready-ok?)
-      (when (and debug char (zerop i)) (format debug "~A : " name))
-      (cond ((null char)
-             (sleep 1/1000))
-            ((char= char #\Newline)
-             (when debug (write-char char debug))
-             (if (and in-ready-ok? (= 7 i))
-                 (setf ready-ok? t)
-                 (setf i 0)))
-            (t
-             (when debug (write-char char debug))
-             (setf in-ready-ok?
-                   (case char
-                     (#\r (if (and in-ready-ok? (zerop i)) t nil))
-                     (#\e (if (and in-ready-ok? (= 1 i)) t nil))
-                     (#\a (if (and in-ready-ok? (= 2 i)) t nil))
-                     (#\d (if (and in-ready-ok? (= 3 i)) t nil))
-                     (#\y (if (and in-ready-ok? (= 4 i)) t nil))
-                     (#\o (if (and in-ready-ok? (= 5 i)) t nil))
-                     (#\k (if (and in-ready-ok? (= 6 i)) t nil))))
-             (incf i)))
-      (when (and (not ready-ok?)
-                 (> (- (get-internal-real-time) start-time)
-                    (* 5 internal-time-units-per-second)))
-        (terminate-process process)
-        (error "Process ~A did not respond with \"readyok\"." name)))))
+  (with-chess-engine (name input output prompt debug process)
+      chess-engine
+    (run-command "isready" input prompt debug)
+    (let ((i 0)
+          (in-ready-ok? t)
+          (ready-ok? nil)
+          (start-time (get-internal-real-time)))
+      (do-read-char (char output :no-hang t :end-var ready-ok?)
+        (when (and debug char (zerop i)) (format debug "~A : " name))
+        (cond ((null char)
+               (sleep 1/1000))
+              ((char= char #\Newline)
+               (when debug (write-char char debug))
+               (if (and in-ready-ok? (= 7 i))
+                   (setf ready-ok? t)
+                   (setf i 0)))
+              (t
+               (when debug (write-char char debug))
+               (setf in-ready-ok?
+                     (case char
+                       (#\r (if (and in-ready-ok? (zerop i)) t nil))
+                       (#\e (if (and in-ready-ok? (= 1 i)) t nil))
+                       (#\a (if (and in-ready-ok? (= 2 i)) t nil))
+                       (#\d (if (and in-ready-ok? (= 3 i)) t nil))
+                       (#\y (if (and in-ready-ok? (= 4 i)) t nil))
+                       (#\o (if (and in-ready-ok? (= 5 i)) t nil))
+                       (#\k (if (and in-ready-ok? (= 6 i)) t nil))))
+               (incf i)))
+        (when (and (not ready-ok?)
+                   (> (- (get-internal-real-time) start-time)
+                      (* 5 internal-time-units-per-second)))
+          (terminate-process process)
+          (error "Process ~A did not respond with \"readyok\"." name))))))
 
-(define-function new-game (name input output prompt debug-stream process)
-  (run-command "ucinewgame" input prompt debug-stream)
-  (ready? name input output prompt debug-stream process))
+(define-function new-game ((chess-engine chess-engine))
+  (with-chess-engine (input prompt debug)
+      chess-engine
+    (run-command "ucinewgame" input prompt debug))
+  (ready? chess-engine))
 
 (define-function go-move (chess-engine
                           &key
@@ -363,10 +369,10 @@ implemented in the future.
                                                  threads
                                                  threads*)
                                          debug))
-            (set-option "Threads" threads* input prompt debug))
+            (set-option chess-engine "Threads" threads*))
           (print-chess-engine-output "DEBUG" "Note: Threads cannot be customized." debug)))
-    (ready? name input output prompt debug process)
-    (new-game name input output prompt debug process)))
+    (ready? chess-engine)
+    (new-game chess-engine)))
 
 (define-function initialize-chess-engines ((chess-engine-1 chess-engine) (chess-engine-2 chess-engine) threads)
   (initialize-chess-engine chess-engine-1 threads)
