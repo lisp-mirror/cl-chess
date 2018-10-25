@@ -80,7 +80,12 @@
     (with-game-status ((current-move move) done? move-lock status-lock)
         game-status
       (multiple-value-bind (chess-engine-1 chess-engine-2)
-          (make-chess-engine-pair engine-name-1 engine-name-2 debug-stream debug-info)
+          (make-chess-engine-pair (make-chess-engine-profile :name engine-name-1
+                                                             :debug-stream debug-stream
+                                                             :debug-info debug-info)
+                                  (make-chess-engine-profile :name engine-name-2
+                                                             :debug-stream debug-stream
+                                                             :debug-info debug-info))
         (initialize-chess-engines chess-engine-1 chess-engine-2 threads)
         (unwind-protect
              (do ((half-turn 0 (1+ half-turn))

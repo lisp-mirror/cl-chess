@@ -14,6 +14,7 @@
            #:initialize-chess-engines
            #:make-chess-engine
            #:make-chess-engine-pair
+           #:make-chess-engine-profile
            #:make-move
            #:make-position-string-and-position
            #:move
@@ -492,15 +493,9 @@ implemented in the future.
       (incf position (if (promotion? move) (1+ +move-length+) +move-length+))
       checkmate?)))
 
-(define-function (make-chess-engine-pair :inline t) (engine-name-1 engine-name-2 debug-stream debug-info)
-  (let ((mirror-match? (string= engine-name-1 engine-name-2)))
-    (values (make-chess-engine* (make-chess-engine-profile :name engine-name-1
-                                                           :debug-stream debug-stream
-                                                           :debug-info debug-info)
-                                :side 1
-                                :mirror-match? mirror-match?)
-            (make-chess-engine* (make-chess-engine-profile :name engine-name-2
-                                                           :debug-stream debug-stream
-                                                           :debug-info debug-info)
-                                :side 2
-                                :mirror-match? mirror-match?))))
+(define-function (make-chess-engine-pair :inline t) ((profile-1 chess-engine-profile)
+                                                     (profile-2 chess-engine-profile))
+  (let ((mirror-match? (string= (chess-engine-profile-name profile-1)
+                                (chess-engine-profile-name profile-2))))
+    (values (make-chess-engine* profile-1 :side 1 :mirror-match? mirror-match?)
+            (make-chess-engine* profile-2 :side 2 :mirror-match? mirror-match?))))
