@@ -14,6 +14,8 @@
 
 (in-package #:chess-engine)
 
+(defgeneric make-uci-client (game-status side-1 side-2 game-config))
+
 (define-function (make-chess-gui :inline t) (width height script-function init-function &key fullscreen)
   (let ((settings (make-settings :title "CL Chess"
                                  :width width
@@ -76,21 +78,21 @@
 
 (define-accessor-macro with-game-configuration #.(symbol-name '#:game-configuration-))
 
-;;; todo: Add a human player class or struct and turn this into a
-;;; method. This current function is when both sides are defined by
-;;; chess-engine-profile. Otherwise, accept input from an outside
-;;; source (with locks) for that player. This allows the human
-;;; player(s) to be side 1, side 2, or both.
+;;; todo: Add a human player class or struct. Currently this requires
+;;; both sides to be defined by chess-engine-profile. For a side that
+;;; is not a chess-engine, accept input from an outside source (with
+;;; locks) for that player. This allows the human player(s) to be side
+;;; 1, side 2, or both.
 ;;;
 ;;; todo: If a side's controller changes, "end" the game and call this
 ;;; again. Allow an in-progress start with an existing position string
 ;;; (or board) and a half-turn not at 0. This means build up a
 ;;; position string even for human vs. human in case a CPU takes over
 ;;; a side later on.
-(define-function make-uci-client ((game-status game-status)
-                                  (profile-1 chess-engine-profile)
-                                  (profile-2 chess-engine-profile)
-                                  (game-config game-configuration))
+(defmethod make-uci-client ((game-status game-status)
+                            (profile-1 chess-engine-profile)
+                            (profile-2 chess-engine-profile)
+                            (game-config game-configuration))
   (lambda ()
     (with-game-status ((current-move move) done? move-lock status-lock)
         game-status
