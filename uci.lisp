@@ -115,7 +115,7 @@
            :do
               (progn ,@body))))
 
-(defun run-command (command process-input &optional (prompt "> ") debug-stream end)
+(define-function (run-command :inline t) (command process-input &optional (prompt "> ") debug-stream end)
   (when debug-stream
     (write-string prompt debug-stream)
     (write-string command debug-stream :end end)
@@ -232,7 +232,7 @@
                (print-chess-engine-output "DEBUG" (format nil "~A is ~A by ~A" name id-name id-author) debug)
                (print-chess-engine-output name line debug)))))
 
-(define-function (set-option :inline t) (name value input prompt debug-stream)
+(defun set-option (name value input prompt debug-stream)
   (run-command (format nil "setoption name ~A~@[ value ~A~]" name value) input prompt debug-stream))
 
 (define-function ready? (name input output prompt debug process)
@@ -272,7 +272,7 @@ response to the command \"isready\".
         (terminate-process process)
         (error "Process ~A did not respond with \"readyok\"." name)))))
 
-(define-function (new-game :inline t) (name input output prompt debug-stream process)
+(define-function new-game (name input output prompt debug-stream process)
   (run-command "ucinewgame" input prompt debug-stream)
   (ready? name input output prompt debug-stream process))
 
