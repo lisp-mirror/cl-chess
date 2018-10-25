@@ -76,6 +76,17 @@
 
 (define-accessor-macro with-game-configuration #.(symbol-name '#:game-configuration-))
 
+;;; todo: Add a human player class or struct and turn this into a
+;;; method. This current function is when both sides are defined by
+;;; chess-engine-profile. Otherwise, accept input from an outside
+;;; source (with locks) for that player. This allows the human
+;;; player(s) to be side 1, side 2, or both.
+;;;
+;;; todo: If a side's controller changes, "end" the game and call this
+;;; again. Allow an in-progress start with an existing position string
+;;; (or board) and a half-turn not at 0. This means build up a
+;;; position string even for human vs. human in case a CPU takes over
+;;; a side later on.
 (define-function make-uci-client ((game-status game-status)
                                   (profile-1 chess-engine-profile)
                                   (profile-2 chess-engine-profile)
