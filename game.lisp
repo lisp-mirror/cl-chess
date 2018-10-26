@@ -11,6 +11,7 @@
            #:game-status
            #:make-game-configuration
            #:make-game-status
+           #:make-headless-match
            #:make-uci-client
            #:with-game-configuration
            #:with-game-status))
@@ -89,3 +90,28 @@
               (print-chess-engine-output "DEBUG"
                                          (format nil "Final outcome: ~A" (if outcome outcome :crash))
                                          debug-stream))))))))
+
+(defun make-headless-match (name-1 name-2 &key
+                                            debug-stream
+                                            (debug-info 2)
+                                            (turns 200)
+                                            (threads 4)
+                                            (seconds 10))
+  "
+Creates a headless match between two UCI chess engines with
+convenient, compact syntax that's ideal for testing.
+
+Note: If there is no debug-stream, then there will be no apparent
+output.
+"
+  (make-uci-client (make-game-status)
+                   (make-chess-engine-profile :name name-1
+                                              :debug-stream debug-stream
+                                              :debug-info debug-info)
+                   (make-chess-engine-profile :name name-2
+                                              :debug-stream debug-stream
+                                              :debug-info debug-info)
+                   (make-game-configuration :turns turns
+                                            :threads threads
+                                            :seconds seconds
+                                            :debug-stream debug-stream)))
