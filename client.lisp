@@ -1,4 +1,4 @@
-(defpackage #:chess-engine
+(defpackage #:cl-chess/client
   (:use #:cl
         #:zombie-raptor
         #:cl-chess/board
@@ -9,10 +9,10 @@
                 #:make-lock
                 #:with-lock-held
                 #:make-thread)
-  (:export #:chess-engine
+  (:export #:chess-engine-gui
            #:chess-game-replay))
 
-(in-package #:chess-engine)
+(in-package #:cl-chess/client)
 
 (define-function (make-chess-gui :inline t) (width height script-function init-function &key fullscreen)
   (let ((settings (make-settings :title "CL Chess"
@@ -93,7 +93,7 @@
 ;;;
 ;;; Note: Having an infinite number of turns (i.e. -1 turns) is not
 ;;; recommended until the edge cases are handled, e.g. draws.
-(define-function (chess-engine :check-type t)
+(define-function (chess-engine-gui :check-type t)
     (&key
      (engine-name-1 "stockfish" string)
      (engine-name-2 "stockfish" string)
