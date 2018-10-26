@@ -1,6 +1,8 @@
 (defpackage #:cl-chess/uci
   (:use #:cl
         #:zombie-raptor)
+  (:import-from #:alexandria
+                #:array-index)
   (:import-from #:uiop
                 #:launch-program
                 #:process-alive-p
@@ -282,6 +284,7 @@ response to the command \"isready\".
           (in-ready-ok? t)
           (ready-ok? nil)
           (start-time (get-internal-real-time)))
+      (declare (array-index i))
       (do-read-char (char output :no-hang t :end-var ready-ok?)
         (when (and debug char (zerop i)) (format debug "~A : " name))
         (cond ((null char)
@@ -294,14 +297,9 @@ response to the command \"isready\".
               (t
                (when debug (write-char char debug))
                (setf in-ready-ok?
-                     (case char
-                       (#\r (if (and in-ready-ok? (zerop i)) t nil))
-                       (#\e (if (and in-ready-ok? (= 1 i)) t nil))
-                       (#\a (if (and in-ready-ok? (= 2 i)) t nil))
-                       (#\d (if (and in-ready-ok? (= 3 i)) t nil))
-                       (#\y (if (and in-ready-ok? (= 4 i)) t nil))
-                       (#\o (if (and in-ready-ok? (= 5 i)) t nil))
-                       (#\k (if (and in-ready-ok? (= 6 i)) t nil))))
+                     (if (and (<= 0 i 6) (char= (char "readyok" i) char))
+                         t
+                         nil))
                (incf i)))
         (when (and (not ready-ok?)
                    (> (- (get-internal-real-time) start-time)
