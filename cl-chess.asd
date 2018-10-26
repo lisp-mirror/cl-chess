@@ -9,4 +9,4 @@
                :pngload
                :uiop
                :zombie-raptor
-               :cl-chess/client))
+               :cl-chess/all))
