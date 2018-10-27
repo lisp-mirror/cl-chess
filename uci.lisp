@@ -67,42 +67,37 @@
 
 ;;; Chess engine
 
-;;; todo: Handle the special case when the UCI server (chess-engine)
-;;; is running in the same process as the UCI client. Keep the
-;;; input/output streams, but set process to nil and don't use UIOP
-;;; for the streams.
-;;;
-;;; todo: This means adding a slot to `chess-engine-profile' and
-;;; calling `make-chess-engine' with a different process type. Only
-;;; keep the current behavior in `make-chess-engine' when the process
-;;; is of type `process-info' and only create the process in
-;;; `make-chess-engine*' when the chess-engine-profile tells it to use
-;;; a separate process.
-
 (defstruct (chess-engine (:constructor %make-chess-engine))
-  (process    nil :type process-info :read-only t)
-  (input      nil :type stream       :read-only t)
-  (output     nil :type stream       :read-only t)
+  (process    nil :type (maybe process-info) :read-only t)
+  (input      nil :type stream               :read-only t)
+  (output     nil :type stream               :read-only t)
   (debug      nil :type (maybe stream))
   (debug-info   2 :type (integer 0 3))
-  (name       nil :type string       :read-only t)
-  (prompt     nil :type string       :read-only t))
+  (name       nil :type string               :read-only t)
+  (prompt     nil :type string               :read-only t))
 
 (define-accessor-macro with-chess-engine #.(symbol-name '#:chess-engine-))
 
 (define-function (make-chess-engine :inline t) (&key process name prompt debug-stream debug-info)
-  (%make-chess-engine :process process
-                      :input (process-info-input process)
-                      :output (process-info-output process)
-                      :debug debug-stream
-                      :debug-info debug-info
-                      :name name
-                      :prompt prompt))
+  (multiple-value-bind (input output)
+      (if process
+          (values (process-info-input process)
+                  (process-info-output process))
+          (values (make-instance 'character-pipe)
+                  (make-instance 'character-pipe)))
+    (%make-chess-engine :process process
+                        :input input
+                        :output output
+                        :debug debug-stream
+                        :debug-info debug-info
+                        :name name
+                        :prompt prompt)))
 
 (defstruct chess-engine-profile
-  (name          nil :type string)
-  (debug-stream  nil :type (maybe stream))
-  (debug-info      2 :type (integer 0 3)))
+  (name              nil :type string)
+  (debug-stream      nil :type (maybe stream))
+  (debug-info        2   :type (integer 0 3))
+  (separate-process? t   :type boolean))
 
 (define-accessor-macro with-chess-engine-profile #.(symbol-name '#:chess-engine-profile-))
 
@@ -110,9 +105,11 @@
                                                  &key
                                                  (side 1 (integer 1 2))
                                                  (mirror-match? nil boolean))
-  (with-chess-engine-profile (name debug-stream debug-info)
+  (with-chess-engine-profile (name debug-stream debug-info separate-process?)
       chess-engine-profile
-    (make-chess-engine :process (launch-program name :input :stream :output :stream)
+    (make-chess-engine :process (if separate-process?
+                                    (launch-program name :input :stream :output :stream)
+                                    nil)
                        :name (if mirror-match? (format nil "~A-~D" name side) name)
                        :prompt (format nil "~D > " side)
                        :debug-stream debug-stream
