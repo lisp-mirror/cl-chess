@@ -36,8 +36,8 @@
 (defconstant +possible-promotions+ 16)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (define-function (make-move :inline t) ()
-    (replace (make-string 5 :initial-element #\Nul) "0000")))
+  (define-function (make-move :inline t) (&optional (string "0000"))
+    (replace (make-string 5 :initial-element #\Nul) string)))
 
 (define-function (promotion? :inline t) (move)
   (not (char= (char move 4) #\Nul)))
