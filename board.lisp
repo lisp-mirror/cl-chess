@@ -1,7 +1,9 @@
 ;;; todo: bit board
 
 (defpackage #:cl-chess/board
-  (:use #:cl #:zombie-raptor)
+  (:use #:cl
+        #:zombie-raptor
+        #:cl-chess/uci)
   (:export #:board
            #:chess-board-ref
            #:make-board
@@ -121,32 +123,30 @@
         new-value))
 
 ;;; todo: Verify that the castling is legal
-(define-function update-board ((board board) move)
-  (if (= (length move) 5)
-      (progn (setf (%chess-board-ref board (char move 2) (char move 3))
-                   (%chess-board-ref board (char move 0) (char move 1))
-                   (%chess-board-ref board (char move 0) (char move 1))
-                   #\Null)
-             ;; The four castling scenarios in regular chess
-             (cond ((string= move "e1g1" :end1 4)
-                    (setf (%chess-board-ref board #\f #\1)
-                          (%chess-board-ref board #\h #\1)
-                          (%chess-board-ref board #\h #\1)
-                          #\Null))
-                   ((string= move "e1c1" :end1 4)
-                    (setf (%chess-board-ref board #\d #\1)
-                          (%chess-board-ref board #\a #\1)
-                          (%chess-board-ref board #\a #\1)
-                          #\Null))
-                   ((string= move "e8g8" :end1 4)
-                    (setf (%chess-board-ref board #\f #\8)
-                          (%chess-board-ref board #\h #\8)
-                          (%chess-board-ref board #\h #\8)
-                          #\Null))
-                   ((string= move "e8c8" :end1 4)
-                    (setf (%chess-board-ref board #\d #\8)
-                          (%chess-board-ref board #\a #\8)
-                          (%chess-board-ref board #\a #\8)
-                          #\Null))))
-      (error "Not a supported move: ~A" move))
+(define-function update-board ((board board) (move move))
+  (progn (setf (%chess-board-ref board (char move 2) (char move 3))
+               (%chess-board-ref board (char move 0) (char move 1))
+               (%chess-board-ref board (char move 0) (char move 1))
+               #\Null)
+         ;; The four castling scenarios in regular chess
+         (cond ((string= move "e1g1" :end1 4)
+                (setf (%chess-board-ref board #\f #\1)
+                      (%chess-board-ref board #\h #\1)
+                      (%chess-board-ref board #\h #\1)
+                      #\Null))
+               ((string= move "e1c1" :end1 4)
+                (setf (%chess-board-ref board #\d #\1)
+                      (%chess-board-ref board #\a #\1)
+                      (%chess-board-ref board #\a #\1)
+                      #\Null))
+               ((string= move "e8g8" :end1 4)
+                (setf (%chess-board-ref board #\f #\8)
+                      (%chess-board-ref board #\h #\8)
+                      (%chess-board-ref board #\h #\8)
+                      #\Null))
+               ((string= move "e8c8" :end1 4)
+                (setf (%chess-board-ref board #\d #\8)
+                      (%chess-board-ref board #\a #\8)
+                      (%chess-board-ref board #\a #\8)
+                      #\Null))))
   board)

@@ -1,5 +1,7 @@
 (defpackage #:cl-chess/graphics
-  (:use #:cl #:zombie-raptor)
+  (:use #:cl
+        #:zombie-raptor
+        #:cl-chess/uci)
   (:import-from #:pngload
                 #:data
                 #:height
@@ -259,44 +261,42 @@
       ((geometry (mesh-id mesh-id)))
     (setf mesh-id new-shape)))
 
-(define-function update-visual-board ((hud-ecs entity-component-system) move)
-  (if (= (length move) 5)
-      (multiple-value-bind (start-x start-y)
-          (%char-to-coords (char move 0) (char move 1))
-        (multiple-value-bind (end-x end-y)
-            (%char-to-coords (char move 2) (char move 3))
-          (let ((start-light? (%light? start-x start-y))
-                (end-light? (%light? end-x end-y))
-                (starting-piece (shape hud-ecs (flat-index 1 8 start-x start-y))))
-            (progn (setf (shape hud-ecs (flat-index 1 8 end-x end-y))
-                         (if (or (and start-light? end-light?)
-                                 (not (or start-light? end-light?)))
-                             starting-piece
-                             (if start-light?
-                                 (1- starting-piece)
-                                 (1+ starting-piece)))
-                         (shape hud-ecs (flat-index 1 8 start-x start-y))
-                         (if start-light? +xxl+ +xxd+))
-                   ;; The four castling scenarios in regular chess
-                   (cond ((string= move "e1g1" :end1 4)
-                          (setf (shape hud-ecs (%char-to-flat-index #\f #\1))
-                                +rll+
-                                (shape hud-ecs (%char-to-flat-index #\h #\1))
-                                +xxl+))
-                         ((string= move "e1c1" :end1 4)
-                          (setf (shape hud-ecs (%char-to-flat-index #\d #\1))
-                                +rll+
-                                (shape hud-ecs (%char-to-flat-index #\a #\1))
-                                +xxd+))
-                         ((string= move "e8g8" :end1 4)
-                          (setf (shape hud-ecs (%char-to-flat-index #\f #\8))
-                                +rdd+
-                                (shape hud-ecs (%char-to-flat-index #\h #\8))
-                                +xxd+))
-                         ((string= move "e8c8" :end1 4)
-                          (setf (shape hud-ecs (%char-to-flat-index #\d #\8))
-                                +rdd+
-                                (shape hud-ecs (%char-to-flat-index #\a #\8))
-                                +xxl+)))))))
-      (error "Not a supported move to parse."))
+(define-function update-visual-board ((hud-ecs entity-component-system) (move move))
+  (multiple-value-bind (start-x start-y)
+      (%char-to-coords (char move 0) (char move 1))
+    (multiple-value-bind (end-x end-y)
+        (%char-to-coords (char move 2) (char move 3))
+      (let ((start-light? (%light? start-x start-y))
+            (end-light? (%light? end-x end-y))
+            (starting-piece (shape hud-ecs (flat-index 1 8 start-x start-y))))
+        (progn (setf (shape hud-ecs (flat-index 1 8 end-x end-y))
+                     (if (or (and start-light? end-light?)
+                             (not (or start-light? end-light?)))
+                         starting-piece
+                         (if start-light?
+                             (1- starting-piece)
+                             (1+ starting-piece)))
+                     (shape hud-ecs (flat-index 1 8 start-x start-y))
+                     (if start-light? +xxl+ +xxd+))
+               ;; The four castling scenarios in regular chess
+               (cond ((string= move "e1g1" :end1 4)
+                      (setf (shape hud-ecs (%char-to-flat-index #\f #\1))
+                            +rll+
+                            (shape hud-ecs (%char-to-flat-index #\h #\1))
+                            +xxl+))
+                     ((string= move "e1c1" :end1 4)
+                      (setf (shape hud-ecs (%char-to-flat-index #\d #\1))
+                            +rll+
+                            (shape hud-ecs (%char-to-flat-index #\a #\1))
+                            +xxd+))
+                     ((string= move "e8g8" :end1 4)
+                      (setf (shape hud-ecs (%char-to-flat-index #\f #\8))
+                            +rdd+
+                            (shape hud-ecs (%char-to-flat-index #\h #\8))
+                            +xxd+))
+                     ((string= move "e8c8" :end1 4)
+                      (setf (shape hud-ecs (%char-to-flat-index #\d #\8))
+                            +rdd+
+                            (shape hud-ecs (%char-to-flat-index #\a #\8))
+                            +xxl+)))))))
   move)
