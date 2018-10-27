@@ -14,6 +14,13 @@
 
 (in-package #:cl-chess/client)
 
+;;; todo: correctly handle promotions and checkmates
+
+;;; todo: When passing in time, also pass in units. Support
+;;; milliseconds, seconds, and minutes and convert to
+;;; milliseconds. Does this mean multiple units passed in or does this
+;;; mean seconds/minutes are no longer integers?
+
 (define-function (make-chess-gui :inline t) (width height script-function init-function &key fullscreen)
   (let ((settings (make-settings :title "CL Chess"
                                  :width width
