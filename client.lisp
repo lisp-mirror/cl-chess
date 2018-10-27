@@ -39,7 +39,8 @@
      (seconds 2 (integer 0))
      (debug-stream nil (maybe stream))
      (width 1280 (integer 200))
-     (height 720 (integer 200)))
+     (height 720 (integer 200))
+     fullscreen)
   (values (make-chess-gui width
                           height
                           (let ((i 0)
@@ -50,7 +51,8 @@
                                   (update-board board move)
                                   (update-visual-board hud-ecs move)
                                   (incf i)))))
-                          #'make-chess-graphics)
+                          #'make-chess-graphics
+                          :fullscreen fullscreen)
           moves))
 
 
@@ -103,7 +105,8 @@
      (debug-stream nil (maybe stream))
      (debug-info 2 (integer 0 3))
      (width 1280 (integer 200))
-     (height 720 (integer 200)))
+     (height 720 (integer 200))
+     fullscreen)
   (make-chess-gui width
                   height
                   #'update-visual-board*
@@ -116,4 +119,5 @@
                                       (make-game-configuration :threads (max (1- threads) 1)
                                                                :turns turns
                                                                :seconds seconds
-                                                               :debug-stream debug-stream))))
+                                                               :debug-stream debug-stream))
+                  :fullscreen fullscreen))
