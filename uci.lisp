@@ -122,7 +122,7 @@
   (when debug-stream
     (format debug-stream "~A : ~A~%" name line)))
 
-;;; UCI
+;;; UCI client
 
 (defmacro do-read-char ((char stream &key eof no-hang end-var) &body body)
   (let* ((read-char (if no-hang 'read-char-no-hang 'read-char))
@@ -150,13 +150,13 @@
            :do
               (progn ,@body))))
 
-(define-function (run-command :inline t) (command process-input &optional (prompt "> ") debug-stream end)
-  (when debug-stream
-    (write-string prompt debug-stream)
-    (write-string command debug-stream :end end)
-    (terpri debug-stream))
-  (write-line command process-input :end end)
-  (force-output process-input))
+(define-function (run-command :inline t) (command input prompt debug &optional end)
+  (when debug
+    (write-string prompt debug)
+    (write-string command debug :end end)
+    (terpri debug))
+  (write-line command input :end end)
+  (force-output input))
 
 (define-function read-opening-message ((chess-engine chess-engine))
   (with-chess-engine (output name debug) chess-engine
@@ -517,3 +517,9 @@ implemented in the future.
                                 (chess-engine-profile-name profile-2))))
     (values (make-chess-engine* profile-1 :side 1 :mirror-match? mirror-match?)
             (make-chess-engine* profile-2 :side 2 :mirror-match? mirror-match?))))
+
+;;; UCI server
+
+(defun id (name author client-stream prompt debug)
+  (run-command (format nil "id name ~A" name) client-stream prompt debug)
+  (run-command (format nil "id author ~A" author) client-stream prompt debug))
