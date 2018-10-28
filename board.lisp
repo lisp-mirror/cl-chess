@@ -123,32 +123,44 @@
         new-value))
 
 (define-function (move-piece :inline t) ((board board) (move move))
-  (let ((piece (%chess-board-ref board (char move 0) (char move 1))))
+  (let ((piece (%chess-board-ref board (char move 0) (char move 1)))
+        (capture? (%chess-board-ref board (char move 2) (char move 3))))
     (psetf (%chess-board-ref board (char move 2) (char move 3))
            piece
            (%chess-board-ref board (char move 0) (char move 1))
            #\Nul)
-    piece))
+    (values piece (and capture? (not (char= capture? #\Nul))))))
 
-;;; todo: Verify that moves (including castling) are legal.
+;;; todo: Verify that moves (including castling and promotions) are
+;;; legal.
 ;;;
-;;; todo: Handle promotions, captures, checks, checkmates, and
+;;; todo: Handle promotions, checks, checkmates, and
 ;;; disambiguating moves
 (define-function update-board ((board board) (move move))
-  (let ((piece (char-upcase (move-piece board move)))
-        (castling (cond ((string= move "e1g1" :end1 4)
-                         (move-piece board #.(make-move "h1f1"))
-                         "0-0")
-                        ((string= move "e1c1" :end1 4)
-                         (move-piece board #.(make-move "a1d1"))
-                         "0-0-0")
-                        ((string= move "e8g8" :end1 4)
-                         (move-piece board #.(make-move "h8f8"))
-                         "0-0")
-                        ((string= move "e8c8" :end1 4)
-                         (move-piece board #.(make-move "a8d8"))
-                         "0-0-0"))))
-    (values board
-            (cond (castling castling)
-                  ((char= #\P piece) (format nil "~A ~A" (subseq move 0 2) (subseq move 2 4)))
-                  (t (format nil "~A~A" piece (subseq move 2 4)))))))
+  (multiple-value-bind (piece capture?) (move-piece board move)
+    (let ((castling (cond ((string= move "e1g1" :end1 4)
+                           (move-piece board #.(make-move "h1f1"))
+                           "0-0")
+                          ((string= move "e1c1" :end1 4)
+                           (move-piece board #.(make-move "a1d1"))
+                           "0-0-0")
+                          ((string= move "e8g8" :end1 4)
+                           (move-piece board #.(make-move "h8f8"))
+                           "0-0")
+                          ((string= move "e8c8" :end1 4)
+                           (move-piece board #.(make-move "a8d8"))
+                           "0-0-0"))))
+      (values board
+              (cond (castling castling)
+                    ((char-equal #\P piece) (format nil
+                                                    "~:[~A ~;~Ax~]~A"
+                                                    capture?
+                                                    (if capture?
+                                                        (char move 0)
+                                                        (subseq move 0 2))
+                                                    (subseq move 2 4)))
+                    (t (format nil
+                               "~A~:[~;x~]~A"
+                               (char-upcase piece)
+                               capture?
+                               (subseq move 2 4))))))))
