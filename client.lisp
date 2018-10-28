@@ -89,8 +89,6 @@
                     (unless done?
                       (setf done? :gui-quit)))))))))
 
-;;; todo: Record moves in algebraic notation
-;;;
 ;;; todo: Handle draws and other edge cases.
 ;;;
 ;;; todo: restore the moves log, and somehow find a way to return it

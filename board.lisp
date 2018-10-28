@@ -123,21 +123,32 @@
         new-value))
 
 (define-function (move-piece :inline t) ((board board) (move move))
-  (setf (%chess-board-ref board (char move 2) (char move 3))
-        (%chess-board-ref board (char move 0) (char move 1))
-        (%chess-board-ref board (char move 0) (char move 1))
-        #\Nul))
+  (let ((piece (%chess-board-ref board (char move 0) (char move 1))))
+    (psetf (%chess-board-ref board (char move 2) (char move 3))
+           piece
+           (%chess-board-ref board (char move 0) (char move 1))
+           #\Nul)
+    piece))
 
-;;; todo: Verify that the castling is legal
+;;; todo: Verify that moves (including castling) are legal.
+;;;
+;;; todo: Handle promotions, captures, checks, checkmates, and
+;;; disambiguating moves
 (define-function update-board ((board board) (move move))
-  (progn (move-piece board move)
-         ;; The four castling scenarios in regular chess
-         (cond ((string= move "e1g1" :end1 4)
-                (move-piece board #.(make-move "h1f1")))
-               ((string= move "e1c1" :end1 4)
-                (move-piece board #.(make-move "a1d1")))
-               ((string= move "e8g8" :end1 4)
-                (move-piece board #.(make-move "h8f8")))
-               ((string= move "e8c8" :end1 4)
-                (move-piece board #.(make-move "a8d8")))))
-  board)
+  (let ((piece (char-upcase (move-piece board move)))
+        (castling (cond ((string= move "e1g1" :end1 4)
+                         (move-piece board #.(make-move "h1f1"))
+                         "0-0")
+                        ((string= move "e1c1" :end1 4)
+                         (move-piece board #.(make-move "a1d1"))
+                         "0-0-0")
+                        ((string= move "e8g8" :end1 4)
+                         (move-piece board #.(make-move "h8f8"))
+                         "0-0")
+                        ((string= move "e8c8" :end1 4)
+                         (move-piece board #.(make-move "a8d8"))
+                         "0-0-0"))))
+    (values board
+            (cond (castling castling)
+                  ((char= #\P piece) (format nil "~A ~A" (subseq move 0 2) (subseq move 2 4)))
+                  (t (format nil "~A~A" piece (subseq move 2 4)))))))
