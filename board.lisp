@@ -134,8 +134,9 @@
 ;;; todo: Verify that moves (including castling and promotions) are
 ;;; legal.
 ;;;
-;;; todo: Handle promotions, checks, checkmates, and
-;;; disambiguating moves
+;;; todo: Handle checks, checkmates, and disambiguating moves
+;;;
+;;; todo: Promote the pawn on the internal board.
 (define-function update-board ((board board) (move move))
   (multiple-value-bind (piece capture?) (move-piece board move)
     (let ((castling (cond ((string= move "e1g1" :end1 4)
@@ -152,6 +153,11 @@
                            "0-0-0"))))
       (values board
               (cond (castling castling)
+                    ;; fixme: what about promoting on a capture?
+                    ((not (char= (char move 4) #\Nul)) (format nil
+                                                               "~A=~A"
+                                                               (subseq move 2 4)
+                                                               (char move 4)))
                     ((char-equal #\P piece) (format nil
                                                     "~:[~A ~;~Ax~]~A"
                                                     capture?
