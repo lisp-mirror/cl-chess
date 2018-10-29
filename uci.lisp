@@ -47,6 +47,10 @@
 
 ;;; Position string
 
+;;; todo: Replace the position history with a FEN board if there are
+;;; more than 200 turns. Make sure all other implicit turn limits are
+;;; similarly handled so an infinite game is possible.
+
 (defconstant +position-string-prefix-length+ (length "position startpos moves"))
 (defconstant +position-string-length+ (+ +position-string-prefix-length+
                                          +possible-promotions+

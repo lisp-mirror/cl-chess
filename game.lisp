@@ -35,8 +35,9 @@
                                (format nil "Turn ~D" (1+ (ash half-turn -1)))
                                debug-stream)))
 
+;;; todo: Handle more than 200 turns.
 (defstruct game-configuration
-  (turns        200 :type (integer -1 200))
+  (turns        200 :type (integer 1 200))
   (threads        4 :type (integer 1 8192))
   (seconds       10 :type (integer 1 *))
   (debug-stream nil :type (maybe stream)))
@@ -54,6 +55,8 @@
 ;;; (or board) and a half-turn not at 0. This means build up a
 ;;; position string even for human vs. human in case a CPU takes over
 ;;; a side later on.
+;;;
+;;; todo: Ponder when one AI is playing against a human.
 (defmethod make-uci-client ((game-status game-status)
                             (profile-1 chess-engine-profile)
                             (profile-2 chess-engine-profile)

@@ -89,24 +89,15 @@
                     (unless done?
                       (setf done? :gui-quit)))))))))
 
-;;; todo: Handle draws and other edge cases.
-;;;
-;;; todo: restore the moves log, and somehow find a way to return it
-;;;
-;;; todo: allow for pondering when playing against a human
-;;;
-;;; todo: replace the position history with a FEN board if there are
-;;; more than 200 turns
-;;;
-;;; Note: Having an infinite number of turns (i.e. -1 turns) is not
-;;; recommended until the edge cases are handled, e.g. draws.
+;;; todo: Handle the end of game results (such as draws and
+;;; checkmates) properly.
 (define-function (chess-engine-gui :check-type t)
     (&key
      (engine-name-1 "stockfish" string)
      (engine-name-2 "stockfish" string)
      (threads 8 (integer 1 8192))
      (seconds 10 (integer 1))
-     (turns 3 (integer -1 200))
+     (turns 3 (integer 1 200))
      (debug-stream nil (maybe stream))
      (debug-info 2 (integer 0 3))
      (width 1280 (integer 200))
