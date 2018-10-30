@@ -33,10 +33,8 @@
                                   #x000000000000ff00)))
 
 (define-function print-bit-board-as-bits ((bit-board bit-board))
-  (map nil
-       (lambda (board-part)
-         (format t "#b~64,'0B~%" board-part))
-       bit-board))
+  (loop :for board-part :of-type (unsigned-byte 64) :across bit-board
+        :do (format t "#b~64,'0B~%" board-part)))
 
 (defun make-board ()
   (make-array '(8 8)
