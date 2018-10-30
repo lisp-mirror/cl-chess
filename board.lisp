@@ -13,6 +13,22 @@
 
 (in-package #:cl-chess/board)
 
+(define-function (make-bit-board :inline t) ()
+  (make-array 12
+              :element-type '(unsigned-byte 64)
+              :initial-contents '(#x0800000000000000
+                                  #x1000000000000000
+                                  #x8100000000000000
+                                  #x4200000000000000
+                                  #x2400000000000000
+                                  #x00ff000000000000
+                                  #x0000000000000008
+                                  #x0000000000000010
+                                  #x0000000000000081
+                                  #x0000000000000042
+                                  #x0000000000000024
+                                  #x000000000000ff00)))
+
 (defun make-board ()
   (make-array '(8 8)
               :element-type 'character
