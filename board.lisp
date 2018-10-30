@@ -13,6 +13,9 @@
 
 (in-package #:cl-chess/board)
 
+(deftype bit-board ()
+  `(simple-array (unsigned-byte 64) (12)))
+
 (define-function (make-bit-board :inline t) ()
   (make-array 12
               :element-type '(unsigned-byte 64)
@@ -28,6 +31,12 @@
                                   #x0000000000000042
                                   #x0000000000000024
                                   #x000000000000ff00)))
+
+(define-function print-bit-board-as-bits ((bit-board bit-board))
+  (map nil
+       (lambda (board-part)
+         (format t "#b~64,'0B~%" board-part))
+       bit-board))
 
 (defun make-board ()
   (make-array '(8 8)
