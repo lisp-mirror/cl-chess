@@ -5,4 +5,4 @@ the AI plays itself or another AI) or a vector of existing chess moves
 It's very incomplete (humans can't even play right now), but it's a
 useful test of the 2D capabilities of the Zombie Raptor game engine.
 
-Mirror of https://gitlab.com/mbabich/cl-chess, just because.
+Mirror of https://gitlab.com/mbabich/cl-chess
