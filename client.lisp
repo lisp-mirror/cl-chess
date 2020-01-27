@@ -32,7 +32,8 @@
         (controls (make-controls :key-actions (key-actions)
                                  :key-bindings (key-bindings)
                                  :mouse-actions (mouse-actions))))
-    (make-game :settings settings
+    (make-game :name :cl-chess-client
+               :settings settings
                :shader-data (shader-data*)
                :textures (list (textures))
                :models (make-instance 'models :models (square-model))
