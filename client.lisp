@@ -22,6 +22,10 @@
 ;;; mean seconds/minutes are no longer integers?
 
 (define-function (make-chess-gui :inline t) (width height script-function init-function &key fullscreen)
+  "
+Makes a chess GUI, i.e. a chess game client. This does not include the
+chess AI.
+"
   (let ((settings (make-settings :title "CL Chess"
                                  :width width
                                  :height height
@@ -49,6 +53,10 @@
      (width 1280 (integer 200))
      (height 720 (integer 200))
      fullscreen)
+  "
+Launches a chess GUI that plays out a prerecorded game described by
+the given moves vector.
+"
   (values (make-chess-gui width
                           height
                           (let ((i 0)
@@ -63,7 +71,6 @@
                           :fullscreen fullscreen)
           moves))
 
-
 (define-function update-visual-board* (&key hud-ecs (state nil game-status) &allow-other-keys)
   (with-game-status (move move-lock) state
     (with-lock-held (move-lock)
@@ -74,6 +81,7 @@
 (define-function make-init-function ((profile-1 chess-engine-profile)
                                      (profile-2 chess-engine-profile)
                                      (config game-configuration))
+  "Returns the function that is called when the game is started."
   (lambda (&key ecs hud-ecs mesh-keys width height)
     (let ((game-status (make-game-status)))
       (make-thread (make-uci-client game-status profile-1 profile-2 config))
@@ -90,12 +98,17 @@
                     (unless done?
                       (setf done? :gui-quit)))))))))
 
-;;; todo: Handle the end of game results (such as draws and
-;;; checkmates) properly.
+;;; TODO: Handle the end of game results (such as draws and
+;;; checkmates) properly. This is not trivial because it requires
+;;; implementing chess's official rules so that the moves can be
+;;; verified, especially the rules for draws.
 (define-function (chess-engine-gui :check-type t)
     (&key
      (engine-name-1 "stockfish" string)
      (engine-name-2 "stockfish" string)
+     ;; TODO: Allow boolean. If NIL, then 1 thread. If T, then get the
+     ;; number of CPU threads if possible, e.g. via calling nproc in
+     ;; Linux.
      (threads 8 (integer 1 8192))
      (seconds 10 (integer 1))
      (turns 3 (integer 1 200))
@@ -104,6 +117,11 @@
      (width 1280 (integer 200))
      (height 720 (integer 200))
      fullscreen)
+  "
+Launches a chess GUI with the specified configuration. For now, AI
+against AI is all that is supported and the AI (chess engine) must be
+a separate process communicating via the UCI protocol.
+"
   (make-chess-gui width
                   height
                   #'update-visual-board*
