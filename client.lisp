@@ -82,16 +82,20 @@ the given moves vector.
                                      (profile-2 chess-engine-profile)
                                      (config game-configuration))
   "Returns the function that is called when the game is started."
+  ;; Init function
   (lambda (&key ecs hud-ecs mesh-keys width height)
     (let ((game-status (make-game-status)))
+      ;; UCI client thread
       (make-thread (make-uci-client game-status profile-1 profile-2 config))
+      ;; Graphics init
       (make-chess-graphics :ecs ecs
                            :hud-ecs hud-ecs
                            :mesh-keys mesh-keys
                            :width width
                            :height height)
-      (values nil
+      (values nil ; no ECS labels
               game-status
+              ;; Exit function
               (lambda ()
                 (with-game-status (done? status-lock) game-status
                   (with-lock-held (status-lock)
