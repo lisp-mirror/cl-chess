@@ -2,7 +2,8 @@
   (:use #:cl
         #:zombie-raptor)
   (:import-from #:alexandria
-                #:array-index)
+                #:array-index
+                #:once-only)
   (:import-from #:uiop
                 #:launch-program
                 #:process-alive-p
@@ -159,8 +160,11 @@
   (write-line command input :end end)
   (force-output input))
 
-(defmacro with-command ((input prompt debug &optional end) &body command)
-  `(run-command ,@command ,input ,prompt ,debug ,end))
+(defmacro with-uci-commands ((input prompt debug &optional end) &body commands)
+  (once-only (input prompt debug end)
+    `(progn ,@(mapcar (lambda (command)
+                        `(run-command ,command ,input ,prompt ,debug ,end))
+                      commands))))
 
 (define-function read-opening-message ((chess-engine chess-engine))
   (with-chess-engine (output name debug) chess-engine
@@ -189,7 +193,7 @@
 (define-function initialize-uci ((chess-engine chess-engine))
   (with-chess-engine (process input output name prompt debug debug-info)
       chess-engine
-    (with-command (input prompt debug)
+    (with-uci-commands (input prompt debug)
       "uci")
     (let ((id-name nil)
           (id-author nil))
@@ -275,7 +279,8 @@
 (define-function set-option ((chess-engine chess-engine) option-name value)
   (with-chess-engine (input prompt debug)
       chess-engine
-    (run-command (format nil "setoption name ~A~@[ value ~A~]" option-name value) input prompt debug)))
+    (with-uci-commands (input prompt debug)
+      (format nil "setoption name ~A~@[ value ~A~]" option-name value))))
 
 (define-function ready? ((chess-engine chess-engine))
   "
@@ -284,7 +289,8 @@ response to the command \"isready\".
 "
   (with-chess-engine (name input output prompt debug process)
       chess-engine
-    (run-command "isready" input prompt debug)
+    (with-uci-commands (input prompt debug)
+      "isready")
     (let ((i 0)
           (line-position 0)
           (line "readyok")
@@ -322,7 +328,8 @@ response to the command \"isready\".
 (define-function new-game ((chess-engine chess-engine))
   (with-chess-engine (input prompt debug)
       chess-engine
-    (run-command "ucinewgame" input prompt debug))
+    (with-uci-commands (input prompt debug)
+      "ucinewgame"))
   (ready? chess-engine))
 
 (define-function go-move (chess-engine
@@ -356,7 +363,7 @@ mate tells the engine to look for a mate in that many moves.
 
 move-time tells the engine to take exactly that long.
 
-infinite? tells the engine to wait until `stop' if true.
+infinite? tells the engine to wait until stop if true.
 
 Note: search-moves has not yet been implemented, but might be
 implemented in the future.
@@ -366,32 +373,32 @@ implemented in the future.
                          moves-to-go)))
     (with-chess-engine (input prompt debug)
         chess-engine
-      (run-command (format nil
-                           #.(concatenate 'string
-                                          "go~:[~; ponder~]"
-                                          "~@[ wtime ~D~]~@[ btime ~D~]~@[ winc ~D~]~@[ b-inc ~D~]~@[ movestogo ~D~]"
-                                          "~@[ depth ~D~]~@[ nodes ~D~]~@[ mate ~D~]"
-                                          "~@[ movetime ~D~]~:[~; infinite~]")
-                           ponder?
-                           w-time
-                           b-time
-                           w-inc
-                           b-inc
-                           moves-to-go
-                           depth
-                           nodes
-                           mate
-                           move-time
-                           infinite?)
-                   input
-                   prompt
-                   debug))))
+      (with-uci-commands (input prompt debug)
+        (format nil
+                #.(concatenate 'string
+                               "go~:[~; ponder~]"
+                               "~@[ wtime ~D~]~@[ btime ~D~]~@[ winc ~D~]~@[ b-inc ~D~]~@[ movestogo ~D~]"
+                               "~@[ depth ~D~]~@[ nodes ~D~]~@[ mate ~D~]"
+                               "~@[ movetime ~D~]~:[~; infinite~]")
+                ponder?
+                w-time
+                b-time
+                w-inc
+                b-inc
+                moves-to-go
+                depth
+                nodes
+                mate
+                move-time
+                infinite?)))))
 
 (define-function (ponder-hit :inline t) (input prompt debug-stream)
-  (run-command "ponderhit" input prompt debug-stream))
+  (with-uci-commands (input prompt debug-stream)
+    "ponderhit"))
 
 (define-function (stop :inline t) (input prompt debug-stream)
-  (run-command "stop" input prompt debug-stream))
+  (with-uci-commands (input prompt debug-stream)
+    "stop"))
 
 (defun initialize-chess-engine (chess-engine threads)
   (with-chess-engine (process input output name prompt debug)
@@ -424,7 +431,7 @@ implemented in the future.
 (define-function quit-chess-engine ((chess-engine chess-engine))
   (with-chess-engine (process input prompt debug)
       chess-engine
-    (with-command (input prompt debug)
+    (with-uci-commands (input prompt debug)
       "quit")
     (wait-process process)
     (chess-engine-leftover-output chess-engine)))
@@ -441,15 +448,13 @@ implemented in the future.
     (when ponder-move
       (setf (char position-string end) #\Space)
       (replace position-string ponder-move :start1 (1+ end)))
-    (run-command position-string
-                 input
-                 prompt
-                 debug
-                 (if ponder-move
-                     (+ end (if (promotion? ponder-move)
-                                +move-length+
-                                (1- +move-length+)))
-                     end))
+    (let ((end (if ponder-move
+                   (+ end (if (promotion? ponder-move)
+                              +move-length+
+                              (1- +move-length+)))
+                   end)))
+      (with-uci-commands (input prompt debug end)
+        position-string))
     (when ponder-move
       (fill position-string #\Nul :start end :end (+ end +move-length+)))))
 
@@ -527,5 +532,6 @@ implemented in the future.
 ;;; UCI server
 
 (defun id (name author client-stream prompt debug)
-  (run-command (format nil "id name ~A" name) client-stream prompt debug)
-  (run-command (format nil "id author ~A" author) client-stream prompt debug))
+  (with-uci-commands (client-stream prompt debug)
+    (format nil "id name ~A" name)
+    (format nil "id author ~A" author)))
