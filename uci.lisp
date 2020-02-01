@@ -159,6 +159,9 @@
   (write-line command input :end end)
   (force-output input))
 
+(defmacro with-command ((input prompt debug &optional end) &body command)
+  `(run-command ,@command ,input ,prompt ,debug ,end))
+
 (define-function read-opening-message ((chess-engine chess-engine))
   (with-chess-engine (output name debug) chess-engine
     (when debug (format debug "~A : " name))
@@ -186,7 +189,8 @@
 (define-function initialize-uci ((chess-engine chess-engine))
   (with-chess-engine (process input output name prompt debug debug-info)
       chess-engine
-    (run-command "uci" input prompt debug)
+    (with-command (input prompt debug)
+      "uci")
     (let ((id-name nil)
           (id-author nil))
       (loop :for line :of-type string := (do ((output? (listen output) (listen output))
@@ -420,7 +424,8 @@ implemented in the future.
 (define-function quit-chess-engine ((chess-engine chess-engine))
   (with-chess-engine (process input prompt debug)
       chess-engine
-    (run-command "quit" input prompt debug)
+    (with-command (input prompt debug)
+      "quit")
     (wait-process process)
     (chess-engine-leftover-output chess-engine)))
 
