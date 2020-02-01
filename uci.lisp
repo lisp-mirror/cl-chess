@@ -160,10 +160,49 @@
   (write-line command input :end end)
   (force-output input))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (define-function (keyword-to-uci-command :inline t) ((command keyword))
+    (declare (optimize (speed 3)))
+    "
+Turns keywords into the equivalent literal strings of the UCI
+commands. This supports direct equivalents of the UCI command names as
+well as reasonable, idiomatic-sounding alternatives, usually by
+inserting hyphens.
+"
+    ;; Note: The commands are in the same order as the spec to make it
+    ;; easier to look up what they do.
+    (ecase command
+      ;; Client commands
+      (:uci "uci")
+      (:debug "debug")
+      ((:isready :is-ready :readyp :ready-p :ready?) "isready")
+      ((:setoption :set-option) "setoption")
+      (:register "register")
+      ((:ucinewgame :uci-newgame :uci-new-game) "ucinewgame")
+      (:position "position")
+      (:go "go")
+      (:stop "stop")
+      ((:ponderhit :ponder-hit) "ponderhit")
+      (:quit "quit")
+      ;; Server commands
+      (:id "id")
+      ((:uciok :uci-ok) "uciok")
+      ((:readyok :ready-ok) "readyok")
+      ((:bestmove :best-move) "bestmove")
+      ((:copyprotection :copy-protection) "copyprotection")
+      (:registration "registration")
+      (:info "info")
+      (:option "option"))))
+
 (defmacro with-uci-commands ((input prompt debug &optional end) &body commands)
   (once-only (input prompt debug end)
+    ;; TODO: Directly support commands that take arguments, which
+    ;; should eliminate the FORMAT NILs in the code.
     `(progn ,@(mapcar (lambda (command)
-                        `(run-command ,command ,input ,prompt ,debug ,end))
+                        (let ((command (if (keywordp command)
+                                           (keyword-to-uci-command command)
+                                           command)))
+                          `(run-command ,command ,input ,prompt ,debug ,end)))
                       commands))))
 
 (define-function read-opening-message ((chess-engine chess-engine))
@@ -194,7 +233,7 @@
   (with-chess-engine (process input output name prompt debug debug-info)
       chess-engine
     (with-uci-commands (input prompt debug)
-      "uci")
+      :uci)
     (let ((id-name nil)
           (id-author nil))
       (loop :for line :of-type string := (do ((output? (listen output) (listen output))
@@ -290,7 +329,7 @@ response to the command \"isready\".
   (with-chess-engine (name input output prompt debug process)
       chess-engine
     (with-uci-commands (input prompt debug)
-      "isready")
+      :ready?)
     (let ((i 0)
           (line-position 0)
           (line "readyok")
@@ -329,7 +368,7 @@ response to the command \"isready\".
   (with-chess-engine (input prompt debug)
       chess-engine
     (with-uci-commands (input prompt debug)
-      "ucinewgame"))
+      :uci-new-game))
   (ready? chess-engine))
 
 (define-function go-move (chess-engine
@@ -392,14 +431,6 @@ implemented in the future.
                 move-time
                 infinite?)))))
 
-(define-function (ponder-hit :inline t) (input prompt debug-stream)
-  (with-uci-commands (input prompt debug-stream)
-    "ponderhit"))
-
-(define-function (stop :inline t) (input prompt debug-stream)
-  (with-uci-commands (input prompt debug-stream)
-    "stop"))
-
 (defun initialize-chess-engine (chess-engine threads)
   (with-chess-engine (process input output name prompt debug)
       chess-engine
@@ -432,7 +463,7 @@ implemented in the future.
   (with-chess-engine (process input prompt debug)
       chess-engine
     (with-uci-commands (input prompt debug)
-      "quit")
+      :quit)
     (wait-process process)
     (chess-engine-leftover-output chess-engine)))
 
