@@ -196,12 +196,21 @@ inserting hyphens.
 
 (defmacro with-uci-commands ((input prompt debug &optional end) &body commands)
   (once-only (input prompt debug end)
-    ;; TODO: Directly support commands that take arguments, which
-    ;; should eliminate the FORMAT NILs in the code.
     `(progn ,@(mapcar (lambda (command)
-                        (let ((command (if (keywordp command)
-                                           (keyword-to-uci-command command)
-                                           command)))
+                        (let ((command (typecase command
+                                         (keyword (keyword-to-uci-command command))
+                                         (list (destructuring-bind (command &rest rest)
+                                                   command
+                                                 (ecase command
+                                                   ((:setoption :set-option) `(format nil "setoption name ~A~@[ value ~A~]" ,@rest))
+                                                   (:go `(format nil #.(concatenate 'string
+                                                                                    "go~:[~; ponder~]"
+                                                                                    "~@[ wtime ~D~]~@[ btime ~D~]~@[ winc ~D~]~@[ b-inc ~D~]~@[ movestogo ~D~]"
+                                                                                    "~@[ depth ~D~]~@[ nodes ~D~]~@[ mate ~D~]"
+                                                                                    "~@[ movetime ~D~]~:[~; infinite~]")
+                                                                 ,@rest))
+                                                   (:id `(format nil "id ~A ~A" ,@rest)))))
+                                         (t command))))
                           `(run-command ,command ,input ,prompt ,debug ,end)))
                       commands))))
 
@@ -315,12 +324,6 @@ inserting hyphens.
                (print-chess-engine-output "DEBUG" (format nil "~A is ~A by ~A" name id-name id-author) debug)
                (print-chess-engine-output name line debug)))))
 
-(define-function set-option ((chess-engine chess-engine) option-name value)
-  (with-chess-engine (input prompt debug)
-      chess-engine
-    (with-uci-commands (input prompt debug)
-      (format nil "setoption name ~A~@[ value ~A~]" option-name value))))
-
 (define-function ready? ((chess-engine chess-engine))
   "
 Tries for approximately 5 seconds to receive the line \"readyok\" in
@@ -413,23 +416,7 @@ implemented in the future.
     (with-chess-engine (input prompt debug)
         chess-engine
       (with-uci-commands (input prompt debug)
-        (format nil
-                #.(concatenate 'string
-                               "go~:[~; ponder~]"
-                               "~@[ wtime ~D~]~@[ btime ~D~]~@[ winc ~D~]~@[ b-inc ~D~]~@[ movestogo ~D~]"
-                               "~@[ depth ~D~]~@[ nodes ~D~]~@[ mate ~D~]"
-                               "~@[ movetime ~D~]~:[~; infinite~]")
-                ponder?
-                w-time
-                b-time
-                w-inc
-                b-inc
-                moves-to-go
-                depth
-                nodes
-                mate
-                move-time
-                infinite?)))))
+        (:go ponder? w-time b-time w-inc b-inc moves-to-go depth nodes mate move-time infinite?)))))
 
 (defun initialize-chess-engine (chess-engine threads)
   (with-chess-engine (process input output name prompt debug)
@@ -450,7 +437,8 @@ implemented in the future.
                                                  threads
                                                  threads*)
                                          debug))
-            (set-option chess-engine "Threads" threads*))
+            (with-uci-commands (input prompt debug)
+              (:set-option "Threads" threads*)))
           (print-chess-engine-output "DEBUG" "Note: Threads cannot be customized." debug)))
     (ready? chess-engine)
     (new-game chess-engine)))
@@ -564,5 +552,5 @@ implemented in the future.
 
 (defun id (name author client-stream prompt debug)
   (with-uci-commands (client-stream prompt debug)
-    (format nil "id name ~A" name)
-    (format nil "id author ~A" author)))
+    (:id "name" name)
+    (:id "author" author)))
