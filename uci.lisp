@@ -28,7 +28,43 @@
 
 (in-package #:cl-chess/uci)
 
-;;; Moves
+;;; UCI commands
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (define-function (keyword-to-uci-command :inline t) ((command keyword))
+    (declare (optimize (speed 3)))
+    "
+Turns keywords into the equivalent literal strings of the UCI
+commands. This supports direct equivalents of the UCI command names as
+well as reasonable, idiomatic-sounding alternatives, usually by
+inserting hyphens.
+"
+    ;; Note: The commands are in the same order as the spec to make it
+    ;; easier to look up what they do.
+    (ecase command
+      ;; Client commands
+      (:uci "uci")
+      (:debug "debug")
+      ((:isready :is-ready :readyp :ready-p :ready?) "isready")
+      ((:setoption :set-option) "setoption")
+      (:register "register")
+      ((:ucinewgame :uci-newgame :uci-new-game) "ucinewgame")
+      (:position "position")
+      (:go "go")
+      (:stop "stop")
+      ((:ponderhit :ponder-hit) "ponderhit")
+      (:quit "quit")
+      ;; Server commands
+      (:id "id")
+      ((:uciok :uci-ok) "uciok")
+      ((:readyok :ready-ok) "readyok")
+      ((:bestmove :best-move) "bestmove")
+      ((:copyprotection :copy-protection) "copyprotection")
+      (:registration "registration")
+      (:info "info")
+      (:option "option"))))
+
+;;; UCI move strings
 
 (deftype move ()
   `(simple-string 5))
@@ -159,40 +195,6 @@
     (terpri debug))
   (write-line command input :end end)
   (force-output input))
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (define-function (keyword-to-uci-command :inline t) ((command keyword))
-    (declare (optimize (speed 3)))
-    "
-Turns keywords into the equivalent literal strings of the UCI
-commands. This supports direct equivalents of the UCI command names as
-well as reasonable, idiomatic-sounding alternatives, usually by
-inserting hyphens.
-"
-    ;; Note: The commands are in the same order as the spec to make it
-    ;; easier to look up what they do.
-    (ecase command
-      ;; Client commands
-      (:uci "uci")
-      (:debug "debug")
-      ((:isready :is-ready :readyp :ready-p :ready?) "isready")
-      ((:setoption :set-option) "setoption")
-      (:register "register")
-      ((:ucinewgame :uci-newgame :uci-new-game) "ucinewgame")
-      (:position "position")
-      (:go "go")
-      (:stop "stop")
-      ((:ponderhit :ponder-hit) "ponderhit")
-      (:quit "quit")
-      ;; Server commands
-      (:id "id")
-      ((:uciok :uci-ok) "uciok")
-      ((:readyok :ready-ok) "readyok")
-      ((:bestmove :best-move) "bestmove")
-      ((:copyprotection :copy-protection) "copyprotection")
-      (:registration "registration")
-      (:info "info")
-      (:option "option"))))
 
 (defmacro with-uci-commands ((input prompt debug &optional end) &body commands)
   (once-only (input prompt debug end)
