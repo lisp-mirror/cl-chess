@@ -1,5 +1,6 @@
 (defpackage #:cl-chess/uci
   (:use #:cl
+        #:cl-chess/util
         #:zombie-raptor)
   (:import-from #:alexandria
                 #:array-index
@@ -28,7 +29,43 @@
 
 (in-package #:cl-chess/uci)
 
-;;; Moves
+;;; UCI commands
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (define-function (keyword-to-uci-command :inline t) ((command keyword))
+    (declare (optimize (speed 3)))
+    "
+Turns keywords into the equivalent literal strings of the UCI
+commands. This supports direct equivalents of the UCI command names as
+well as reasonable, idiomatic-sounding alternatives, usually by
+inserting hyphens.
+"
+    ;; Note: The commands are in the same order as the spec to make it
+    ;; easier to look up what they do.
+    (ecase command
+      ;; Client commands
+      (:uci "uci")
+      (:debug "debug")
+      ((:isready :is-ready :readyp :ready-p :ready?) "isready")
+      ((:setoption :set-option) "setoption")
+      (:register "register")
+      ((:ucinewgame :uci-newgame :uci-new-game) "ucinewgame")
+      (:position "position")
+      (:go "go")
+      (:stop "stop")
+      ((:ponderhit :ponder-hit) "ponderhit")
+      (:quit "quit")
+      ;; Server commands
+      (:id "id")
+      ((:uciok :uci-ok) "uciok")
+      ((:readyok :ready-ok) "readyok")
+      ((:bestmove :best-move) "bestmove")
+      ((:copyprotection :copy-protection) "copyprotection")
+      (:registration "registration")
+      (:info "info")
+      (:option "option"))))
+
+;;; UCI move strings
 
 (deftype move ()
   `(simple-string 5))
@@ -124,33 +161,7 @@
   (when debug-stream
     (format debug-stream "~A : ~A~%" name line)))
 
-;;; UCI client
-
-(defmacro do-read-char ((char stream &key eof no-hang end-var) &body body)
-  (let* ((read-char (if no-hang 'read-char-no-hang 'read-char))
-         (end-condition `(eql ,eof ,char))
-         (end-condition (if no-hang `(or (null ,char) ,end-condition) end-condition))
-         (end-condition (if end-var `(and ,end-var ,end-condition) end-condition)))
-    `(do ((,char (,read-char ,stream nil ,eof)
-                 (,read-char ,stream nil ,eof)))
-         (,end-condition)
-       ,@body)))
-
-(defmacro do-space-separated-line ((line word start-position end-position &optional end-var)
-                                   &body body)
-  (let* ((end-condition `(null ,start-position))
-         (end-condition (if end-var `(or ,end-condition ,end-var) end-condition)))
-    `(loop ,@(if end-var `(:with ,end-var := nil) nil)
-           :for ,start-position :of-type (maybe fixnum) := 0
-             :then (if ,end-position (1+ ,end-position) nil)
-           :for ,end-position :of-type (maybe fixnum)
-             := (if (null ,start-position)
-                    nil
-                    (position #\Space ,line :start ,start-position))
-           :for ,word :of-type fixnum :from 0
-           :until ,end-condition
-           :do
-              (progn ,@body))))
+;;; UCI commands
 
 (define-function (run-command :inline t) (command input prompt debug &optional end)
   (when debug
@@ -160,50 +171,27 @@
   (write-line command input :end end)
   (force-output input))
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (define-function (keyword-to-uci-command :inline t) ((command keyword))
-    (declare (optimize (speed 3)))
-    "
-Turns keywords into the equivalent literal strings of the UCI
-commands. This supports direct equivalents of the UCI command names as
-well as reasonable, idiomatic-sounding alternatives, usually by
-inserting hyphens.
-"
-    ;; Note: The commands are in the same order as the spec to make it
-    ;; easier to look up what they do.
-    (ecase command
-      ;; Client commands
-      (:uci "uci")
-      (:debug "debug")
-      ((:isready :is-ready :readyp :ready-p :ready?) "isready")
-      ((:setoption :set-option) "setoption")
-      (:register "register")
-      ((:ucinewgame :uci-newgame :uci-new-game) "ucinewgame")
-      (:position "position")
-      (:go "go")
-      (:stop "stop")
-      ((:ponderhit :ponder-hit) "ponderhit")
-      (:quit "quit")
-      ;; Server commands
-      (:id "id")
-      ((:uciok :uci-ok) "uciok")
-      ((:readyok :ready-ok) "readyok")
-      ((:bestmove :best-move) "bestmove")
-      ((:copyprotection :copy-protection) "copyprotection")
-      (:registration "registration")
-      (:info "info")
-      (:option "option"))))
-
 (defmacro with-uci-commands ((input prompt debug &optional end) &body commands)
   (once-only (input prompt debug end)
-    ;; TODO: Directly support commands that take arguments, which
-    ;; should eliminate the FORMAT NILs in the code.
     `(progn ,@(mapcar (lambda (command)
-                        (let ((command (if (keywordp command)
-                                           (keyword-to-uci-command command)
-                                           command)))
+                        (let ((command (typecase command
+                                         (keyword (keyword-to-uci-command command))
+                                         (list (destructuring-bind (command &rest rest)
+                                                   command
+                                                 (ecase command
+                                                   ((:setoption :set-option) `(format nil "setoption name ~A~@[ value ~A~]" ,@rest))
+                                                   (:go `(format nil #.(concatenate 'string
+                                                                                    "go~:[~; ponder~]"
+                                                                                    "~@[ wtime ~D~]~@[ btime ~D~]~@[ winc ~D~]~@[ b-inc ~D~]~@[ movestogo ~D~]"
+                                                                                    "~@[ depth ~D~]~@[ nodes ~D~]~@[ mate ~D~]"
+                                                                                    "~@[ movetime ~D~]~:[~; infinite~]")
+                                                                 ,@rest))
+                                                   (:id `(format nil "id ~A ~A" ,@rest)))))
+                                         (t command))))
                           `(run-command ,command ,input ,prompt ,debug ,end)))
                       commands))))
+
+;;; UCI client
 
 (define-function read-opening-message ((chess-engine chess-engine))
   (with-chess-engine (output name debug) chess-engine
@@ -315,12 +303,6 @@ inserting hyphens.
                (print-chess-engine-output "DEBUG" (format nil "~A is ~A by ~A" name id-name id-author) debug)
                (print-chess-engine-output name line debug)))))
 
-(define-function set-option ((chess-engine chess-engine) option-name value)
-  (with-chess-engine (input prompt debug)
-      chess-engine
-    (with-uci-commands (input prompt debug)
-      (format nil "setoption name ~A~@[ value ~A~]" option-name value))))
-
 (define-function ready? ((chess-engine chess-engine))
   "
 Tries for approximately 5 seconds to receive the line \"readyok\" in
@@ -413,23 +395,7 @@ implemented in the future.
     (with-chess-engine (input prompt debug)
         chess-engine
       (with-uci-commands (input prompt debug)
-        (format nil
-                #.(concatenate 'string
-                               "go~:[~; ponder~]"
-                               "~@[ wtime ~D~]~@[ btime ~D~]~@[ winc ~D~]~@[ b-inc ~D~]~@[ movestogo ~D~]"
-                               "~@[ depth ~D~]~@[ nodes ~D~]~@[ mate ~D~]"
-                               "~@[ movetime ~D~]~:[~; infinite~]")
-                ponder?
-                w-time
-                b-time
-                w-inc
-                b-inc
-                moves-to-go
-                depth
-                nodes
-                mate
-                move-time
-                infinite?)))))
+        (:go ponder? w-time b-time w-inc b-inc moves-to-go depth nodes mate move-time infinite?)))))
 
 (defun initialize-chess-engine (chess-engine threads)
   (with-chess-engine (process input output name prompt debug)
@@ -450,7 +416,8 @@ implemented in the future.
                                                  threads
                                                  threads*)
                                          debug))
-            (set-option chess-engine "Threads" threads*))
+            (with-uci-commands (input prompt debug)
+              (:set-option "Threads" threads*)))
           (print-chess-engine-output "DEBUG" "Note: Threads cannot be customized." debug)))
     (ready? chess-engine)
     (new-game chess-engine)))
@@ -564,5 +531,5 @@ implemented in the future.
 
 (defun id (name author client-stream prompt debug)
   (with-uci-commands (client-stream prompt debug)
-    (format nil "id name ~A" name)
-    (format nil "id author ~A" author)))
+    (:id "name" name)
+    (:id "author" author)))
