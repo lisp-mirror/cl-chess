@@ -171,25 +171,27 @@ inserting hyphens.
   (write-line command input :end end)
   (force-output input))
 
-(defmacro with-uci-commands ((input prompt debug &optional end) &body commands)
-  (once-only (input prompt debug end)
-    `(progn ,@(mapcar (lambda (command)
-                        (let ((command (typecase command
-                                         (keyword (keyword-to-uci-command command))
-                                         (list (destructuring-bind (command &rest rest)
-                                                   command
-                                                 (ecase command
-                                                   ((:setoption :set-option) `(format nil "setoption name ~A~@[ value ~A~]" ,@rest))
-                                                   (:go `(format nil #.(concatenate 'string
-                                                                                    "go~:[~; ponder~]"
-                                                                                    "~@[ wtime ~D~]~@[ btime ~D~]~@[ winc ~D~]~@[ b-inc ~D~]~@[ movestogo ~D~]"
-                                                                                    "~@[ depth ~D~]~@[ nodes ~D~]~@[ mate ~D~]"
-                                                                                    "~@[ movetime ~D~]~:[~; infinite~]")
-                                                                 ,@rest))
-                                                   (:id `(format nil "id ~A ~A" ,@rest)))))
-                                         (t command))))
-                          `(run-command ,command ,input ,prompt ,debug ,end)))
-                      commands))))
+(defmacro with-uci-commands ((chess-engine &optional end) &body commands)
+  (once-only (chess-engine end)
+    (alexandria:with-gensyms (input prompt debug)
+      `(with-chess-engine ((,input input) (,prompt prompt) (,debug debug)) ,chess-engine
+         ,@(mapcar (lambda (command)
+                     (let ((command (typecase command
+                                      (keyword (keyword-to-uci-command command))
+                                      (list (destructuring-bind (command &rest rest)
+                                                command
+                                              (ecase command
+                                                ((:setoption :set-option) `(format nil "setoption name ~A~@[ value ~A~]" ,@rest))
+                                                (:go `(format nil #.(concatenate 'string
+                                                                                 "go~:[~; ponder~]"
+                                                                                 "~@[ wtime ~D~]~@[ btime ~D~]~@[ winc ~D~]~@[ b-inc ~D~]~@[ movestogo ~D~]"
+                                                                                 "~@[ depth ~D~]~@[ nodes ~D~]~@[ mate ~D~]"
+                                                                                 "~@[ movetime ~D~]~:[~; infinite~]")
+                                                              ,@rest))
+                                                (:id `(format nil "id ~A ~A" ,@rest)))))
+                                      (t command))))
+                       `(run-command ,command ,input ,prompt ,debug ,end)))
+                   commands)))))
 
 ;;; UCI client
 
@@ -218,9 +220,9 @@ inserting hyphens.
   (var     nil :type (maybe string)))
 
 (define-function initialize-uci ((chess-engine chess-engine))
-  (with-chess-engine (process input output name prompt debug debug-info)
+  (with-chess-engine (process output name debug debug-info)
       chess-engine
-    (with-uci-commands (input prompt debug)
+    (with-uci-commands (chess-engine)
       :uci)
     (let ((id-name nil)
           (id-author nil))
@@ -308,9 +310,9 @@ inserting hyphens.
 Tries for approximately 5 seconds to receive the line \"readyok\" in
 response to the command \"isready\".
 "
-  (with-chess-engine (name input output prompt debug process)
+  (with-chess-engine (name output debug process)
       chess-engine
-    (with-uci-commands (input prompt debug)
+    (with-uci-commands (chess-engine)
       :ready?)
     (let ((i 0)
           (line-position 0)
@@ -347,10 +349,8 @@ response to the command \"isready\".
           (error "Process ~A did not respond with \"readyok\"." name))))))
 
 (define-function new-game ((chess-engine chess-engine))
-  (with-chess-engine (input prompt debug)
-      chess-engine
-    (with-uci-commands (input prompt debug)
-      :uci-new-game))
+  (with-uci-commands (chess-engine)
+    :uci-new-game)
   (ready? chess-engine))
 
 (define-function go-move (chess-engine
@@ -392,13 +392,11 @@ implemented in the future.
   (let ((moves-to-go (if (and moves-to-go (zerop moves-to-go))
                          nil
                          moves-to-go)))
-    (with-chess-engine (input prompt debug)
-        chess-engine
-      (with-uci-commands (input prompt debug)
-        (:go ponder? w-time b-time w-inc b-inc moves-to-go depth nodes mate move-time infinite?)))))
+    (with-uci-commands (chess-engine)
+      (:go ponder? w-time b-time w-inc b-inc moves-to-go depth nodes mate move-time infinite?))))
 
 (defun initialize-chess-engine (chess-engine threads)
-  (with-chess-engine (process input output name prompt debug)
+  (with-chess-engine (process output name debug)
       chess-engine
     (read-opening-message chess-engine)
     (let* ((options (initialize-uci chess-engine))
@@ -416,7 +414,7 @@ implemented in the future.
                                                  threads
                                                  threads*)
                                          debug))
-            (with-uci-commands (input prompt debug)
+            (with-uci-commands (chess-engine)
               (:set-option "Threads" threads*)))
           (print-chess-engine-output "DEBUG" "Note: Threads cannot be customized." debug)))
     (ready? chess-engine)
@@ -427,10 +425,10 @@ implemented in the future.
   (initialize-chess-engine chess-engine-2 threads))
 
 (define-function quit-chess-engine ((chess-engine chess-engine))
-  (with-chess-engine (process input prompt debug)
+  (with-chess-engine (process)
       chess-engine
     (when (process-alive-p process)
-      (with-uci-commands (input prompt debug)
+      (with-uci-commands (chess-engine)
         :quit)
       (wait-process process)
       (chess-engine-leftover-output chess-engine)))
@@ -441,20 +439,18 @@ implemented in the future.
   (quit-chess-engine chess-engine-2))
 
 (define-function update-position (chess-engine position-string (ponder-move (maybe move)) end)
-  (with-chess-engine (input prompt debug)
-      chess-engine
-    (when ponder-move
-      (setf (char position-string end) #\Space)
-      (replace position-string ponder-move :start1 (1+ end)))
-    (let ((end (if ponder-move
-                   (+ end (if (promotion? ponder-move)
-                              +move-length+
-                              (1- +move-length+)))
-                   end)))
-      (with-uci-commands (input prompt debug end)
-        position-string))
-    (when ponder-move
-      (fill position-string #\Nul :start end :end (+ end +move-length+)))))
+  (when ponder-move
+    (setf (char position-string end) #\Space)
+    (replace position-string ponder-move :start1 (1+ end)))
+  (let ((end (if ponder-move
+                 (+ end (if (promotion? ponder-move)
+                            +move-length+
+                            (1- +move-length+)))
+                 end)))
+    (with-uci-commands (chess-engine end)
+      position-string))
+  (when ponder-move
+    (fill position-string #\Nul :start end :end (+ end +move-length+))))
 
 (define-function (parse-move-line :inline t) ((line string) (move move) (ponder move))
   (let ((best-move? nil)
@@ -529,7 +525,7 @@ implemented in the future.
 
 ;;; UCI server
 
-(defun id (name author client-stream prompt debug)
-  (with-uci-commands (client-stream prompt debug)
+(defun id (name author chess-engine)
+  (with-uci-commands (chess-engine)
     (:id "name" name)
     (:id "author" author)))
