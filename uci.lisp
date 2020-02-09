@@ -166,10 +166,8 @@ inserting hyphens.
 (define-function (run-command :inline t) (command input prompt debug &optional end)
   (when debug
     (write-string prompt debug)
-    (write-string command debug :end end)
-    (terpri debug))
-  (write-line command input :end end)
-  (force-output input))
+    (write-line command debug :end end))
+  (write-line command input :end end))
 
 (defmacro with-uci-commands ((chess-engine &optional end) &body commands)
   (once-only (chess-engine end)
@@ -191,7 +189,9 @@ inserting hyphens.
                                                 (:id `(format nil "id ~A ~A" ,@rest)))))
                                       (t command))))
                        `(run-command ,command ,input ,prompt ,debug ,end)))
-                   commands)))))
+                   commands)
+         (force-output ,input)
+         nil))))
 
 ;;; UCI client
 
