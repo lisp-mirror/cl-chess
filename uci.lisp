@@ -169,26 +169,29 @@ inserting hyphens.
     (write-line command debug :end end))
   (write-line command input :end end))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun generate-command (command)
+    (typecase command
+      (keyword (keyword-to-uci-command command))
+      (list (destructuring-bind (command &rest rest)
+                command
+              (ecase command
+                ((:setoption :set-option) `(format nil "setoption name ~A~@[ value ~A~]" ,@rest))
+                (:go `(format nil #.(concatenate 'string
+                                                 "go~:[~; ponder~]"
+                                                 "~@[ wtime ~D~]~@[ btime ~D~]~@[ winc ~D~]~@[ b-inc ~D~]~@[ movestogo ~D~]"
+                                                 "~@[ depth ~D~]~@[ nodes ~D~]~@[ mate ~D~]"
+                                                 "~@[ movetime ~D~]~:[~; infinite~]")
+                              ,@rest))
+                (:id `(format nil "id ~A ~A" ,@rest)))))
+      (t command))))
+
 (defmacro with-uci-commands ((chess-engine &optional end) &body commands)
   (once-only (chess-engine end)
     (alexandria:with-gensyms (input prompt debug)
       `(with-chess-engine ((,input input) (,prompt prompt) (,debug debug)) ,chess-engine
          ,@(mapcar (lambda (command)
-                     (let ((command (typecase command
-                                      (keyword (keyword-to-uci-command command))
-                                      (list (destructuring-bind (command &rest rest)
-                                                command
-                                              (ecase command
-                                                ((:setoption :set-option) `(format nil "setoption name ~A~@[ value ~A~]" ,@rest))
-                                                (:go `(format nil #.(concatenate 'string
-                                                                                 "go~:[~; ponder~]"
-                                                                                 "~@[ wtime ~D~]~@[ btime ~D~]~@[ winc ~D~]~@[ b-inc ~D~]~@[ movestogo ~D~]"
-                                                                                 "~@[ depth ~D~]~@[ nodes ~D~]~@[ mate ~D~]"
-                                                                                 "~@[ movetime ~D~]~:[~; infinite~]")
-                                                              ,@rest))
-                                                (:id `(format nil "id ~A ~A" ,@rest)))))
-                                      (t command))))
-                       `(run-command ,command ,input ,prompt ,debug ,end)))
+                     `(run-command ,(generate-command command) ,input ,prompt ,debug ,end))
                    commands)
          (force-output ,input)
          nil))))
