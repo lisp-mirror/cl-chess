@@ -170,28 +170,43 @@ inserting hyphens.
   (write-line command input :end end))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defun generate-command (command)
-    (typecase command
-      (keyword (keyword-to-uci-command command))
-      (list (destructuring-bind (command &rest rest)
-                command
-              (ecase command
-                ((:setoption :set-option) `(format nil "setoption name ~A~@[ value ~A~]" ,@rest))
-                (:go `(format nil #.(concatenate 'string
-                                                 "go~:[~; ponder~]"
-                                                 "~@[ wtime ~D~]~@[ btime ~D~]~@[ winc ~D~]~@[ b-inc ~D~]~@[ movestogo ~D~]"
-                                                 "~@[ depth ~D~]~@[ nodes ~D~]~@[ mate ~D~]"
-                                                 "~@[ movetime ~D~]~:[~; infinite~]")
-                              ,@rest))
-                (:id `(format nil "id ~A ~A" ,@rest)))))
-      (t command))))
+  (defun generate-command (command input prompt debug end)
+    (let ((command (typecase command
+                     (keyword (keyword-to-uci-command command))
+                     (list (destructuring-bind (command &rest rest)
+                               command
+                             (ecase command
+                               ((:setoption :set-option)
+                                (multiple-value-bind (name value)
+                                    (if (and rest (member (car rest) `(:name :value)))
+                                        (destructuring-bind (&key name value)
+                                            rest
+                                          (unless name
+                                            (error "The field name is required in setoption"))
+                                          (values name value))
+                                        (destructuring-bind (name value)
+                                            rest
+                                          (values name value)))
+                                  `(format nil "setoption name ~A~@[ value ~A~]" ,name ,value)))
+                               (:go `(format nil #.(concatenate 'string
+                                                                "go~:[~; ponder~]"
+                                                                "~@[ wtime ~D~]~@[ btime ~D~]~@[ winc ~D~]~@[ binc ~D~]~@[ movestogo ~D~]"
+                                                                "~@[ depth ~D~]~@[ nodes ~D~]~@[ mate ~D~]"
+                                                                "~@[ movetime ~D~]~:[~; infinite~]")
+                                             ,@rest))
+                               (:id
+                                (destructuring-bind (field data)
+                                    rest
+                                  `(format nil "id ~A ~A" ,field ,data))))))
+                     (t command))))
+      `(run-command ,command ,input ,prompt ,debug ,end))))
 
 (defmacro with-uci-commands ((chess-engine &optional end) &body commands)
   (once-only (chess-engine end)
     (alexandria:with-gensyms (input prompt debug)
       `(with-chess-engine ((,input input) (,prompt prompt) (,debug debug)) ,chess-engine
          ,@(mapcar (lambda (command)
-                     `(run-command ,(generate-command command) ,input ,prompt ,debug ,end))
+                     (generate-command command input prompt debug end))
                    commands)
          (force-output ,input)
          nil))))
