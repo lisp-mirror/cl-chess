@@ -171,6 +171,10 @@ inserting hyphens.
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun generate-command (command input prompt debug end)
+    "
+Returns either a simple UCI command or a command with arguments
+depending on what was passed into `with-uci-commands'.
+"
     (let ((command (typecase command
                      (keyword (keyword-to-uci-command command))
                      (list (destructuring-bind (command &rest rest)
@@ -202,6 +206,10 @@ inserting hyphens.
       `(run-command ,command ,input ,prompt ,debug ,end))))
 
 (defmacro with-uci-commands ((chess-engine &optional end) &body commands)
+  "
+Turns UCI expressed as s-expressions into writing UCI strings,
+directed at the given chess-engine instance.
+"
   (once-only (chess-engine end)
     (alexandria:with-gensyms (input prompt debug)
       `(with-chess-engine ((,input input) (,prompt prompt) (,debug debug)) ,chess-engine
