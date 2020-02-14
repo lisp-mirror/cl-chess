@@ -163,12 +163,6 @@ inserting hyphens.
 
 ;;; UCI commands
 
-(define-function (run-command :inline t) (command input prompt debug &optional end)
-  (when debug
-    (write-string prompt debug)
-    (write-line command debug :end end))
-  (write-line command input :end end))
-
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun generate-command (command input prompt debug end)
     "
@@ -203,7 +197,10 @@ depending on what was passed into `with-uci-commands'.
                                     rest
                                   `(format nil "id ~A ~A" ,field ,data))))))
                      (t command))))
-      `(run-command ,command ,input ,prompt ,debug ,end))))
+      `(progn (when ,debug
+                (write-string ,prompt ,debug)
+                (write-line ,command ,debug :end ,end))
+              (write-line ,command ,input :end ,end)))))
 
 (defmacro with-uci-commands ((chess-engine &optional end) &body commands)
   "
