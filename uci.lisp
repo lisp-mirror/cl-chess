@@ -185,24 +185,34 @@ depending on what was passed into `with-uci-commands'.
                                         (destructuring-bind (name value)
                                             rest
                                           (values name value)))
-                                  `(format nil "setoption name ~A~@[ value ~A~]" ,name ,value)))
-                               (:go `(format nil #.(concatenate 'string
-                                                                "go~:[~; ponder~]"
-                                                                "~@[ wtime ~D~]~@[ btime ~D~]~@[ winc ~D~]~@[ binc ~D~]~@[ movestogo ~D~]"
-                                                                "~@[ depth ~D~]~@[ nodes ~D~]~@[ mate ~D~]"
-                                                                "~@[ movetime ~D~]~:[~; infinite~]")
-                                             ,@rest))
+                                  `("setoption name ~A~@[ value ~A~]~%" ,name ,value)))
+                               (:go `(#.(concatenate 'string
+                                                     "go~:[~; ponder~]"
+                                                     "~@[ wtime ~D~]~@[ btime ~D~]~@[ winc ~D~]~@[ binc ~D~]~@[ movestogo ~D~]"
+                                                     "~@[ depth ~D~]~@[ nodes ~D~]~@[ mate ~D~]"
+                                                     "~@[ movetime ~D~]~:[~; infinite~]~%")
+                                        ,@rest))
                                (:id
                                 (destructuring-bind (field data)
                                     rest
-                                  `(format nil "id ~A ~A" ,field ,data))))))
+                                  `("id ~A ~A~%" ,field ,data))))))
                      (t command))))
       (flet ((write-command (stream)
-               `((write-line ,command ,stream :end ,end))))
-        `(progn (when ,debug
-                  (write-string ,prompt ,debug)
-                  ,@(write-command debug))
-                ,@(write-command input))))))
+               (typecase command
+                 (list `(format ,stream ,@command))
+                 (t `(write-line ,command ,stream :end ,end)))))
+        `(progn
+           ;; Note: This should be optimized away in well-formed usage
+           ;; of with-uci-commands, but without it, unused variable
+           ;; warnings will happen and I cannot declare ignorable the
+           ;; output of alexandria:with-gensyms
+           ,@(if (listp command)
+                 `((when ,end
+                     (error "Invalid syntax. A complex UCI command cannot have an end."))))
+           (when ,debug
+             (write-string ,prompt ,debug)
+             ,(write-command debug))
+           ,(write-command input))))))
 
 (defmacro with-uci-commands ((chess-engine &optional end) &body commands)
   "
