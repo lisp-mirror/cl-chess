@@ -197,10 +197,12 @@ depending on what was passed into `with-uci-commands'.
                                     rest
                                   `(format nil "id ~A ~A" ,field ,data))))))
                      (t command))))
-      `(progn (when ,debug
-                (write-string ,prompt ,debug)
-                (write-line ,command ,debug :end ,end))
-              (write-line ,command ,input :end ,end)))))
+      (flet ((write-command (stream)
+               `((write-line ,command ,stream :end ,end))))
+        `(progn (when ,debug
+                  (write-string ,prompt ,debug)
+                  ,@(write-command debug))
+                ,@(write-command input))))))
 
 (defmacro with-uci-commands ((chess-engine &optional end) &body commands)
   "
