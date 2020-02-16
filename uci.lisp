@@ -89,21 +89,18 @@ inserting hyphens.
 ;;; more than 200 turns. Make sure all other implicit turn limits are
 ;;; similarly handled so an infinite game is possible.
 
-(defconstant +position-string-prefix-length+ (length "position startpos moves"))
-(defconstant +position-string-length+ (+ +position-string-prefix-length+
-                                         +possible-promotions+
+(defconstant +position-string-length+ (+ +possible-promotions+
                                          (* 400 +move-length+)))
 
 (deftype position-string ()
   `(simple-string ,+position-string-length+))
 
 (define-function (make-position-string :inline t) ()
-  (replace (make-string +position-string-length+ :initial-element #\Nul)
-           "position startpos moves"))
+  (make-string +position-string-length+ :initial-element #\Nul))
 
 (defstruct position-string-and-position
   (string (make-position-string) :type position-string)
-  (position +position-string-prefix-length+ :type fixnum))
+  (position 0 :type fixnum))
 
 (define-accessor-macro with-position-string-and-position #.(symbol-name '#:position-string-and-position-))
 
@@ -164,7 +161,7 @@ inserting hyphens.
 ;;; UCI commands
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defun generate-command (command input prompt debug end)
+  (defun generate-command (command input prompt debug)
     "
 Returns either a simple UCI command or a command with arguments
 depending on what was passed into `with-uci-commands'.
@@ -185,45 +182,53 @@ depending on what was passed into `with-uci-commands'.
                                         (destructuring-bind (name value)
                                             rest
                                           (values name value)))
-                                  `("setoption name ~A~@[ value ~A~]~%" ,name ,value)))
-                               (:go `(#.(concatenate 'string
+                                  `(:format "setoption name ~A~@[ value ~A~]~%" ,name ,value)))
+                               (:go `(:format
+                                      #.(concatenate 'string
                                                      "go~:[~; ponder~]"
                                                      "~@[ wtime ~D~]~@[ btime ~D~]~@[ winc ~D~]~@[ binc ~D~]~@[ movestogo ~D~]"
                                                      "~@[ depth ~D~]~@[ nodes ~D~]~@[ mate ~D~]"
                                                      "~@[ movetime ~D~]~:[~; infinite~]~%")
-                                        ,@rest))
+                                      ,@rest))
                                (:id
                                 (destructuring-bind (field data)
                                     rest
-                                  `("id ~A ~A~%" ,field ,data))))))
+                                  `(:format "id ~A ~A~%" ,field ,data)))
+                               (:position
+                                (destructuring-bind (moves end)
+                                    rest
+                                  `(:write (write-string "position startpos moves")
+                                           (write-line ,moves ,end)))))))
                      (t command))))
       (flet ((write-command (stream)
                (typecase command
-                 (list `(format ,stream ,@command))
-                 (t `(write-line ,command ,stream :end ,end)))))
+                 ;; If the command is a list, then either it is the
+                 ;; last parts of a FORMAT command or it is a list of
+                 ;; various WRITE commands.
+                 (list (ecase (car command)
+                         (:format `((format ,stream ,@(cdr command))))
+                         (:write (mapcar (lambda (c)
+                                           (destructuring-bind (command string &optional end) c
+                                             (let ((end (if end `(:end ,end) nil)))
+                                               `(,command ,string ,stream ,@end))))
+                                         (cdr command)))))
+                 (t `((write-line ,command ,stream))))))
         `(progn
-           ;; Note: This should be optimized away in well-formed usage
-           ;; of with-uci-commands, but without it, unused variable
-           ;; warnings will happen and I cannot declare ignorable the
-           ;; output of alexandria:with-gensyms
-           ,@(if (listp command)
-                 `((when ,end
-                     (error "Invalid syntax. A complex UCI command cannot have an end."))))
            (when ,debug
              (write-string ,prompt ,debug)
-             ,(write-command debug))
-           ,(write-command input))))))
+             ,@(write-command debug))
+           ,@(write-command input))))))
 
-(defmacro with-uci-commands ((chess-engine &optional end) &body commands)
+(defmacro with-uci-commands ((chess-engine) &body commands)
   "
 Turns UCI expressed as s-expressions into writing UCI strings,
 directed at the given chess-engine instance.
 "
-  (once-only (chess-engine end)
+  (once-only (chess-engine)
     (alexandria:with-gensyms (input prompt debug)
       `(with-chess-engine ((,input input) (,prompt prompt) (,debug debug)) ,chess-engine
          ,@(mapcar (lambda (command)
-                     (generate-command command input prompt debug end))
+                     (generate-command command input prompt debug))
                    commands)
          (force-output ,input)
          nil))))
@@ -482,8 +487,8 @@ implemented in the future.
                             +move-length+
                             (1- +move-length+)))
                  end)))
-    (with-uci-commands (chess-engine end)
-      position-string))
+    (with-uci-commands (chess-engine)
+      (:position position-string end)))
   (when ponder-move
     (fill position-string #\Nul :start end :end (+ end +move-length+))))
 
