@@ -306,33 +306,45 @@ directed at the given chess-engine instance.
                           (2 (setf name-start start
                                    name-end end
                                    line-subtype :name))
-                          (t (case line-subtype
-                               (:name
-                                (if (string= line "type" :start1 start :end1 end)
-                                    (psetf (uci-option-name uci-option) (subseq line name-start name-end)
-                                           line-subtype :type)
-                                    (setf name-end end)))
-                               (:type
-                                (psetf (uci-option-type uci-option) (subseq line start end)
-                                       line-subtype :parameter))
-                               (:default
-                                (psetf (uci-option-default uci-option) (subseq line start end)
-                                       line-subtype :parameter))
-                               (:min
-                                (psetf (uci-option-min uci-option) (subseq line start end)
-                                       line-subtype :parameter))
-                               (:max
-                                (psetf (uci-option-max uci-option) (subseq line start end)
-                                       line-subtype :parameter))
-                               ;; fixme: multiple vars are allowed
-                               (:var
-                                (psetf (uci-option-var uci-option) (subseq line start end)
-                                       line-subtype :parameter))
-                               (:parameter (setf line-subtype
-                                                 (cond ((string= line "default" :start1 start :end1 end) :default)
-                                                       ((string= line "min" :start1 start :end1 end) :min)
-                                                       ((string= line "max" :start1 start :end1 end) :max)
-                                                       ((string= line "var" :start1 start :end1 end) :var)))))))))))
+                          (t (setf line-subtype
+                                   (with-accessors* (uci-option-name
+                                                     uci-option-type
+                                                     uci-option-default
+                                                     uci-option-min
+                                                     uci-option-max
+                                                     uci-option-var)
+                                       uci-option
+                                     (ecase line-subtype
+                                       (:name
+                                        ;; The word "type" is the end of the name.
+                                        (if (string= line "type" :start1 start :end1 end)
+                                            (progn
+                                              (setf uci-option-name (subseq line name-start name-end))
+                                              :type)
+                                            (progn
+                                              (setf name-end end)
+                                              :name)))
+                                       (:type
+                                        (setf uci-option-type (subseq line start end))
+                                        :parameter)
+                                       (:default
+                                        (setf uci-option-default (subseq line start end))
+                                        :parameter)
+                                       (:min
+                                        (setf uci-option-min (subseq line start end))
+                                        :parameter)
+                                       (:max
+                                        (setf uci-option-max (subseq line start end))
+                                        :parameter)
+                                       ;; fixme: multiple vars are allowed
+                                       (:var
+                                        (setf uci-option-var (subseq line start end))
+                                        :parameter)
+                                       (:parameter (cond ((string= line "default" :start1 start :end1 end) :default)
+                                                         ((string= line "min" :start1 start :end1 end) :min)
+                                                         ((string= line "max" :start1 start :end1 end) :max)
+                                                         ((string= line "var" :start1 start :end1 end) :var)
+                                                         (t line-subtype))))))))))))
                (unless (< debug-info 2)
                  (print-chess-engine-output name line debug))
             :when uci-option
