@@ -161,45 +161,48 @@ inserting hyphens.
 ;;; UCI commands
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun generate-command* (command)
+    (typecase command
+      (keyword (keyword-to-uci-command command))
+      (list (destructuring-bind (command &rest rest)
+                command
+              (ecase command
+                ((:setoption :set-option)
+                 (multiple-value-bind (name value)
+                     (if (and rest (member (car rest) `(:name :value)))
+                         (destructuring-bind (&key name value)
+                             rest
+                           (unless name
+                             (error "The field name is required in setoption"))
+                           (values name value))
+                         (destructuring-bind (name value)
+                             rest
+                           (values name value)))
+                   `(:format "setoption name ~A~@[ value ~A~]~%" ,name ,value)))
+                (:go `(:format
+                       #.(concatenate 'string
+                                      "go~:[~; ponder~]"
+                                      "~@[ wtime ~D~]~@[ btime ~D~]~@[ winc ~D~]~@[ binc ~D~]~@[ movestogo ~D~]"
+                                      "~@[ depth ~D~]~@[ nodes ~D~]~@[ mate ~D~]"
+                                      "~@[ movetime ~D~]~:[~; infinite~]~%")
+                       ,@rest))
+                (:id
+                 (destructuring-bind (field data)
+                     rest
+                   `(:format "id ~A ~A~%" ,field ,data)))
+                (:position
+                 (destructuring-bind (moves end)
+                     rest
+                   `(:write (write-string "position startpos moves")
+                            (write-line ,moves ,end)))))))
+      (t command)))
+
   (defun generate-command (command input prompt debug)
     "
 Returns either a simple UCI command or a command with arguments
 depending on what was passed into `with-uci-commands'.
 "
-    (let ((command (typecase command
-                     (keyword (keyword-to-uci-command command))
-                     (list (destructuring-bind (command &rest rest)
-                               command
-                             (ecase command
-                               ((:setoption :set-option)
-                                (multiple-value-bind (name value)
-                                    (if (and rest (member (car rest) `(:name :value)))
-                                        (destructuring-bind (&key name value)
-                                            rest
-                                          (unless name
-                                            (error "The field name is required in setoption"))
-                                          (values name value))
-                                        (destructuring-bind (name value)
-                                            rest
-                                          (values name value)))
-                                  `(:format "setoption name ~A~@[ value ~A~]~%" ,name ,value)))
-                               (:go `(:format
-                                      #.(concatenate 'string
-                                                     "go~:[~; ponder~]"
-                                                     "~@[ wtime ~D~]~@[ btime ~D~]~@[ winc ~D~]~@[ binc ~D~]~@[ movestogo ~D~]"
-                                                     "~@[ depth ~D~]~@[ nodes ~D~]~@[ mate ~D~]"
-                                                     "~@[ movetime ~D~]~:[~; infinite~]~%")
-                                      ,@rest))
-                               (:id
-                                (destructuring-bind (field data)
-                                    rest
-                                  `(:format "id ~A ~A~%" ,field ,data)))
-                               (:position
-                                (destructuring-bind (moves end)
-                                    rest
-                                  `(:write (write-string "position startpos moves")
-                                           (write-line ,moves ,end)))))))
-                     (t command))))
+    (let ((command (generate-command* command)))
       (flet ((write-command (stream)
                (typecase command
                  ;; If the command is a list, then either it is the
