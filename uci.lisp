@@ -239,12 +239,21 @@ directed at the given chess-engine instance.
 ;;; UCI client
 
 (define-function read-opening-message ((chess-engine chess-engine))
+  "
+Reads the opening message. If debug, then write it. Otherwise, it's
+just discarded because it doesn't provide any useful information to
+the program itself.
+"
   (with-chess-engine (output name debug) chess-engine
     (when debug (format debug "~A : " name))
     (do-read-char (char output :eof :eof :no-hang t)
       (when debug (write-char char debug)))))
 
 (define-function chess-engine-leftover-output ((chess-engine chess-engine))
+  "
+Processes any output that is left over when the chess engine has
+finished running. This basically reads until EOF so nothing hangs.
+"
   (with-chess-engine (output name debug) chess-engine
     (let ((first? t))
       (do-read-char (char output :eof :eof)
@@ -404,6 +413,7 @@ response to the command \"isready\".
           (error "Process ~A did not respond with \"readyok\"." name))))))
 
 (define-function new-game ((chess-engine chess-engine))
+  "Tells the chess engine to start a new game and waits until it's ready."
   (with-uci-commands (chess-engine)
     :uci-new-game)
   (ready? chess-engine))
