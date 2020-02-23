@@ -461,6 +461,9 @@ implemented in the future.
       (:go ponder? w-time b-time w-inc b-inc moves-to-go depth nodes mate move-time infinite?))))
 
 (defun initialize-chess-engine (chess-engine threads)
+  "
+Initializes the UCI chess engine from the startup to a new game.
+"
   (with-chess-engine (process output name debug)
       chess-engine
     (read-opening-message chess-engine)
@@ -486,10 +489,15 @@ implemented in the future.
     (new-game chess-engine)))
 
 (define-function initialize-chess-engines ((chess-engine-1 chess-engine) (chess-engine-2 chess-engine) threads)
+  "Initializes both chess engines. Use this if the AI is playing AI."
   (initialize-chess-engine chess-engine-1 threads)
   (initialize-chess-engine chess-engine-2 threads))
 
 (define-function quit-chess-engine ((chess-engine chess-engine))
+  "
+Tell the chess engine process to quit and then wait for the process to
+complete, reading its remaining output if there is any.
+"
   (with-chess-engine (process)
       chess-engine
     (when (process-alive-p process)
@@ -500,6 +508,7 @@ implemented in the future.
   nil)
 
 (define-function quit-chess-engines ((chess-engine-1 chess-engine) (chess-engine-2 chess-engine))
+  "Quit both chess engines. Use this if the AI is playing AI."
   (quit-chess-engine chess-engine-1)
   (quit-chess-engine chess-engine-2))
 
@@ -568,14 +577,18 @@ implemented in the future.
           :until done?
           :finally (return (if (eql :checkmate done?) t nil)))))
 
-(define-function half-turn ((engine-active chess-engine)
+(define-function half-turn ((active-ai chess-engine)
                             (move move)
                             (position-string position-string-and-position)
                             seconds)
+  "
+Does half a turn, i.e. if an AI is playing AI, then this is one of the
+AIs' turns. If the AI is playing a human, then this is the AI's turn.
+"
   (with-position-string-and-position (string position) position-string
-    (update-position engine-active string nil position)
+    (update-position active-ai string nil position)
     (let* ((ponder (make-move))
-           (checkmate? (chess-engine-move engine-active seconds move ponder)))
+           (checkmate? (chess-engine-move active-ai seconds move ponder)))
       (setf (char string position) #\Space)
       (replace string move :start1 (1+ position))
       (incf position (if (promotion? move) (1+ +move-length+) +move-length+))
@@ -583,6 +596,13 @@ implemented in the future.
 
 (define-function (make-chess-engine-pair :inline t) ((profile-1 chess-engine-profile)
                                                      (profile-2 chess-engine-profile))
+  "
+Matches the AI against another AI by creating two chess-engine
+objects, one for each chess engine. If the AI is playing another AI of
+the same chess engine, then it is a mirror match. In this case, -1 and
+-2 need to be added to the name so that the logs show which is which.
+They will still run in separate processes, even if it plays itself.
+"
   (let ((mirror-match? (string= (chess-engine-profile-name profile-1)
                                 (chess-engine-profile-name profile-2))))
     (values (make-chess-engine* profile-1 :side 1 :mirror-match? mirror-match?)
