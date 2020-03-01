@@ -246,8 +246,9 @@ the program itself.
 "
   (with-chess-engine (output name debug) chess-engine
     (when debug (format debug "~A : " name))
-    (do-read-char (char output :eof :eof :no-hang t)
-      (when debug (write-char char debug)))))
+    (read-case (output char :no-hang? t)
+      (t (when (and debug char)
+           (write-char char debug))))))
 
 (define-function chess-engine-leftover-output ((chess-engine chess-engine))
   "
@@ -256,11 +257,11 @@ finished running. This basically reads until EOF so nothing hangs.
 "
   (with-chess-engine (output name debug) chess-engine
     (let ((first? t))
-      (do-read-char (char output :eof :eof)
-        (when first?
-          (when debug (format debug "~A : " name))
-          (setf first? nil))
-        (when debug (write-char char debug))))))
+      (read-case (output char)
+        (t (when first?
+             (when debug (format debug "~A : " name))
+             (setf first? nil))
+           (when debug (write-char char debug)))))))
 
 (defstruct uci-option
   (name    nil :type (maybe string))
