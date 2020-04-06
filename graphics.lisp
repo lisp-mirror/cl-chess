@@ -1,6 +1,7 @@
 (defpackage #:cl-chess/graphics
   (:use #:cl
         #:zombie-raptor
+        #:zr-utils
         #:cl-chess/uci)
   (:import-from #:pngload
                 #:data

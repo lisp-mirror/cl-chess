@@ -1,6 +1,6 @@
 (defpackage #:cl-chess/util
   (:use #:cl
-        #:zombie-raptor/util)
+        #:zr-utils)
   (:export #:do-read-char
            #:do-space-separated-line))
 

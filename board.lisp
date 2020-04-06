@@ -3,6 +3,7 @@
 (defpackage #:cl-chess/board
   (:use #:cl
         #:zombie-raptor
+        #:zr-utils
         #:cl-chess/uci)
   (:export #:board
            #:chess-board-ref

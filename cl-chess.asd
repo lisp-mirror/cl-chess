@@ -9,4 +9,5 @@
                :pngload
                :uiop
                :zombie-raptor
+               :zr-utils
                :cl-chess/all))

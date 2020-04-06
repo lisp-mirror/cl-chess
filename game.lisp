@@ -1,6 +1,7 @@
 (defpackage #:cl-chess/game
   (:use #:cl
         #:zombie-raptor
+        #:zr-utils
         #:cl-chess/board
         #:cl-chess/uci)
   (:import-from #:bordeaux-threads

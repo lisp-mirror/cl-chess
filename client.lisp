@@ -1,6 +1,7 @@
 (defpackage #:cl-chess/client
   (:use #:cl
         #:zombie-raptor
+        #:zr-utils
         #:cl-chess/board
         #:cl-chess/game
         #:cl-chess/graphics
