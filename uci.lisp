@@ -1,7 +1,8 @@
 (defpackage #:cl-chess/uci
   (:use #:cl
         #:cl-chess/util
-        #:zombie-raptor)
+        #:zombie-raptor
+        #:zr-utils)
   (:import-from #:alexandria
                 #:array-index
                 #:once-only)
